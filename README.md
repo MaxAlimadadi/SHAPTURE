@@ -106,6 +106,7 @@ shapture_config <- list(
   model_type = "xgboost",
   preprocessing_method = "scale",
   patient_balance_method = "model_weights",
+  patient_split_strategy = "shared_patients",
   shap_expr_cor_direction_filter = "both",
   group_colors = c("darkblue", "darkred"),
   continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
@@ -128,6 +129,25 @@ For a complete parameter reference, see:
 ```r
 pipeline/shapture_config_full_reference.R
 ```
+
+### Patient train/test strategies
+
+`patient_split_strategy = "shared_patients"` is the default and preserves the
+original SHAPTURE behavior: test cells or metacells are held out, but their
+patients may also contribute different units to training.
+
+`patient_split_strategy = "unseen_patients"` keeps patient IDs globally
+separate between training and testing. Within each task, eligible patients are
+split using rounded 60% training and 40% testing counts. The method requires at
+least five eligible patients per condition, at least 20 cells per
+patient-condition in single-cell mode or 5 metacells in metacell mode, and at
+least 50 training cells or 20 training metacells per condition. Patient
+selection rotates across iterations so held-out appearances remain balanced.
+
+If a task cannot satisfy these requirements, that whole task uses
+`shared_patients` and records the reason. A one-vs-others split is always global:
+no cells from a held-out patient can appear in training, regardless of whether
+they belong to the target or pooled background.
 
 ## Analysis modes
 
@@ -174,6 +194,11 @@ Each analysis task creates a result folder with:
 - `docs/feature_prefilter_summary.csv`: feature filtering summary
 - `docs/sampling_coverage_summary.csv`: held-out cell or metacell coverage
 - `docs/feature_bagging_summary.csv`: gene-subsetting coverage
+- `docs/patient_split_summary.csv`: requested and applied patient split strategy
+- `docs/patient_sampling_coverage_summary.csv`: patient eligibility and rotation
+- `docs/patient_feature_coverage_summary.csv`: held-out patient coverage by gene
+- `Integrated_adaptive_scoring_results/run_summary.csv`: compact task settings,
+  patient split outcome, coverage, feature counts, and model performance
 - `Integrated_adaptive_scoring_results/`: summary figures
 - `SHAP_only/`: SHAP-only condition summaries
 

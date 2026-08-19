@@ -23,4 +23,3 @@ Reads user-defined objects from a script environment, fills defaults, applies
 temporary environment overrides, validates options, and returns a clean
 argument list for \code{run_shapture_pipeline()}.
 }
-\keyword{internal}

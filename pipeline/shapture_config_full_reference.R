@@ -126,6 +126,14 @@ shapture_config_full <- list(
   # in one_vs_others mode, the target level is balanced by sample_id and the
   # pooled non-target class is balanced by sample_id + split_by_col
   patient_balance_method = "model_weights",
+
+  # "shared_patients" or "unseen_patients"
+  # shared_patients keeps the current cell/metacell-level split and permits the
+  # same patient to contribute different units to training and testing
+  # unseen_patients uses globally separate patient folds, with 60% of eligible
+  # patients in training and 40% in testing; tasks that cannot meet the fixed
+  # patient/unit requirements automatically use shared_patients and record why
+  patient_split_strategy = "shared_patients",
   
   # "both", "positive", or "negative"
   # "positive" keeps shap_expr_cor > 0; "negative" keeps shap_expr_cor < 0

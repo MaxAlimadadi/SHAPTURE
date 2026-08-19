@@ -66,6 +66,7 @@ The main script defines a set of user-controlled parameters.
 ### Repeated modeling
 - `train_ratio`, `test_ratio`: training and testing fractions
 - `iteration_no`: number of repeated model fits
+- `patient_split_strategy`: `shared_patients` (default) or `unseen_patients`
 - `top_feature_label`: number of features to label in some plots
 - `top_feature_show`: number of top features to display and save for post-analysis plotting
 
@@ -94,6 +95,20 @@ Both `full` and `safe` modes use the same interpretation rule: if one cell/metac
   - `hard_median_downsample`
   - `weighted_sampling`
   - `model_weights`
+
+### Patient train/test strategy
+- `shared_patients`: preserves the original cell/metacell-level split; a test
+  unit is never a training unit in the same iteration, but the same patient may
+  contribute different units to both sets
+- `unseen_patients`: assigns eligible patients to globally disjoint train and
+  test groups using rounded 60%/40% counts separately for each condition
+
+The unseen-patient strategy requires at least five eligible patients per
+condition. Eligibility requires at least 20 cells per patient-condition in
+single-cell mode or 5 metacells per patient-condition in metacell mode. Each
+fold must retain at least 50 training cells or 20 training metacells per
+condition. If any requirement cannot be met, the complete task falls back to
+`shared_patients`, emits a warning, and saves the reason.
 
 ### Metacell settings
 Used only when `analysis_unit_type == "metacell"`:
@@ -233,7 +248,29 @@ What it does:
 
 The coverage summary is saved as `docs/sampling_coverage_summary.csv`. When the total number of requested held-out rows is large enough, the goal is for every available cell/metacell in each condition to appear in the test set at least once across iterations.
 
+When `patient_split_strategy = "unseen_patients"`, patient separation happens
+before row selection. Sixty percent of eligible patients are assigned to
+training and forty percent to testing after rounding; all eligible patients are
+used in one of the two groups. Patient IDs are separated globally, including in
+one-vs-others tasks, and patients with fewer previous test appearances are
+prioritized in later iterations. Test rows are distributed across held-out
+patients so a patient with many more cells does not dominate simply because of
+its size.
+
+The requested and applied strategy is saved to
+`docs/patient_split_summary.csv`. Patient eligibility and rotation are saved to
+`docs/patient_sampling_coverage_summary.csv`.
+
 After feature filtering, SHAPTURE also builds a coverage-aware gene-subset plan. Each iteration uses 20% of the candidate genes, and genes with the fewest previous inclusions are prioritized for the next iteration. The gene coverage summary is saved as `docs/feature_bagging_summary.csv`.
+
+For unseen-patient tasks, feature selection is coordinated with the current
+held-out patients. Genes with less prior SHAP coverage in those patients are
+prioritized while overall gene inclusion remains balanced. The achieved
+patient-condition coverage for every gene is saved to
+`docs/patient_feature_coverage_summary.csv`. Missing patient-gene observations
+remain missing and are never replaced with zero. Its denominator includes all
+eligible patient-condition units, including eligible patients that were never
+held out because too few iterations were requested.
 
 ### Preprocessing options
 - `none`: pass raw values through
@@ -265,6 +302,11 @@ The script imports `pROC` and computes classification metrics across repeated fi
 - confusion-matrix-derived metrics such as accuracy, sensitivity, specificity, precision, recall, and F1
 
 Because the model is repeated many times, the pipeline can later summarize both average performance and stability.
+
+AUC and the other predictive metrics are calculated from the same test units
+used for SHAP. Under `shared_patients`, these are unseen cells or metacells from
+patients who may also contribute training units. Under `unseen_patients`, they
+come only from patients completely absent from training.
 
 Important interpretation note:
 - `stability` is displayed as **Model reproducibility** and should be read as resampling consistency, not as independent biological replication, because different iterations reuse overlapping underlying data.
@@ -444,21 +486,25 @@ At minimum, the user should define:
 ---
 
 ## Suggested repository structure
-A clean repository organization for this workflow would be:
+The package repository is organized as:
 
 ```text
 SHAPTURE/
+├── R/                         # package functions
+├── man/                       # generated function documentation
 ├── pipeline/
-│   ├── shapviz_main.R
 │   ├── helper_function.R
+│   ├── run_shapture_analysis.R
+│   ├── run_shapture_visualization.R
+│   ├── run_shapture_visualization_one.vs.others.R
 │   ├── getting_data_from_sce.R
-│   └── getting_data_from_Seurat.R
-├── docs/
-│   ├── pipeline.md
-│   └── assumptions.md
-├── examples/
-├── results/
-└── README.md
+│   ├── getting_data_from_Seurat.R
+│   └── shapture_config_full_reference.R
+├── tests/testthat/            # automated package tests
+├── DESCRIPTION
+├── NAMESPACE
+├── README.md
+└── pipeline.md
 ```
 
 ---

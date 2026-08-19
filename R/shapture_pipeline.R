@@ -76,6 +76,7 @@ default_shapture_script_config <- function(what_genes) {
     analysis_unit_type = "metacell",
     memory_mode = "full",
     patient_balance_method = "model_weights",
+    patient_split_strategy = "shared_patients",
     shap_expr_cor_direction_filter = "both",
     group_colors = c("darkblue", "darkred"),
     continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
@@ -270,7 +271,7 @@ write_shapture_config_csv <- function(config_list, output_path) {
 #' @param main_dir Project directory.
 #'
 #' @return Named list of resolved pipeline arguments.
-#' @keywords internal
+#' @export
 resolve_shapture_script_config <- function(
     envir,
     dataset_all,
@@ -391,12 +392,19 @@ resolve_shapture_script_config <- function(
   }
   
   valid_balance_methods <- c("hard_median_downsample", "weighted_sampling", "model_weights")
+  valid_patient_split_strategies <- c("shared_patients", "unseen_patients")
   valid_shap_expr_cor_direction_filters <- c("both", "positive", "negative")
   valid_memory_modes <- c("full", "safe")
   valid_score_scaling_methods <- c("minmax", "winsorized")
   
   if (!config$patient_balance_method %in% valid_balance_methods) {
     stop("patient_balance_method must be one of: ", paste(valid_balance_methods, collapse = ", "))
+  }
+  if (!config$patient_split_strategy %in% valid_patient_split_strategies) {
+    stop(
+      "patient_split_strategy must be one of: ",
+      paste(valid_patient_split_strategies, collapse = ", ")
+    )
   }
   
   if (!config$shap_expr_cor_direction_filter %in% valid_shap_expr_cor_direction_filters) {
@@ -1190,6 +1198,9 @@ filter_features_by_min_pct <- function(
 #' @param analysis_unit_type Either `"single_cell"` or `"metacell"`.
 #' @param memory_mode Either `"full"` or `"safe"`.
 #' @param patient_balance_method Patient balancing method.
+#' @param patient_split_strategy Either `"shared_patients"` for the existing
+#'   cell/metacell-level split or `"unseen_patients"` for globally disjoint
+#'   patient-level train/test folds with automatic task-level fallback.
 #' @param shap_expr_cor_direction_filter One of `"both"`, `"positive"`,
 #'   `"negative"`. Filters retained features by the sign of `shap_expr_cor`.
 #' @param default_prior_scores_weights Named prior weights for final score
@@ -1231,11 +1242,16 @@ run_shapture_task <- function(
     analysis_unit_type,
     memory_mode,
     patient_balance_method,
+    patient_split_strategy,
     shap_expr_cor_direction_filter,
     default_prior_scores_weights,
     resolved_config_for_docs
 ) {
   memory_mode <- match.arg(memory_mode, c("full", "safe"))
+  patient_split_strategy <- match.arg(
+    patient_split_strategy,
+    c("shared_patients", "unseen_patients")
+  )
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
   
@@ -1382,32 +1398,101 @@ run_shapture_task <- function(
   top_feature_show_local <- min(top_feature_show, length(what_genes))
   random_seeds <- sample(1:10000, iteration_no, replace = FALSE)
   feature_bagging_fraction <- 0.20
-  split_plan_res <- build_coverage_aware_split_plan(
-    dataset = dataset_task,
-    random_seeds = random_seeds,
-    train_ratio = train_ratio,
-    test_ratio = test_ratio,
-    each_condition_total_sample_no = each.condition_total_sample_No,
-    condition_col = "condition",
-    unit_col = ".shapture_unit_id",
-    sampling_prob_col = sampling_prob_col
-  )
+  patient_split_strategy_requested <- patient_split_strategy
+  patient_split_strategy_used <- "shared_patients"
+  patient_split_fallback_reason <- NA_character_
+  patient_coverage_summary <- NULL
+  patient_feature_coverage_summary <- NULL
+  eligible_patient_condition_keys <- NULL
+  min_unseen_units_per_patient <- if (analysis_unit_type == "single_cell") 20L else 5L
+  min_unseen_train_units_per_condition <- if (analysis_unit_type == "single_cell") 50L else 20L
+
+  if (patient_split_strategy_requested == "unseen_patients") {
+    unseen_plan_res <- build_unseen_patient_split_plan(
+      dataset = dataset_task,
+      random_seeds = random_seeds,
+      train_ratio = train_ratio,
+      test_ratio = test_ratio,
+      each_condition_total_sample_no = each.condition_total_sample_No,
+      condition_col = "condition",
+      sample_col = "sample_id",
+      unit_col = ".shapture_unit_id",
+      sampling_prob_col = sampling_prob_col,
+      min_patients_per_condition = 5L,
+      patient_train_fraction = 0.60,
+      min_units_per_patient = min_unseen_units_per_patient,
+      min_train_units_per_condition = min_unseen_train_units_per_condition
+    )
+    patient_coverage_summary <- unseen_plan_res$patient_coverage_summary
+    if (isTRUE(unseen_plan_res$success)) {
+      split_plan_res <- unseen_plan_res
+      patient_split_strategy_used <- "unseen_patients"
+      eligible_rows <- unseen_plan_res$patient_coverage_summary$eligible
+      eligible_patient_condition_keys <- paste(
+        unseen_plan_res$patient_coverage_summary$condition[eligible_rows],
+        unseen_plan_res$patient_coverage_summary$patient_id[eligible_rows],
+        sep = "::"
+      )
+    } else {
+      patient_split_fallback_reason <- unseen_plan_res$reason
+      warning(
+        "Task '", temp_split, "' requested unseen_patients but will use ",
+        "shared_patients. Reason: ", patient_split_fallback_reason,
+        call. = FALSE
+      )
+    }
+  }
+
+  if (patient_split_strategy_used == "shared_patients") {
+    split_plan_res <- build_coverage_aware_split_plan(
+      dataset = dataset_task,
+      random_seeds = random_seeds,
+      train_ratio = train_ratio,
+      test_ratio = test_ratio,
+      each_condition_total_sample_no = each.condition_total_sample_No,
+      condition_col = "condition",
+      unit_col = ".shapture_unit_id",
+      sampling_prob_col = sampling_prob_col
+    )
+  }
   split_plans <- split_plan_res$plans
   sampling_coverage_summary <- split_plan_res$coverage_summary
-  feature_plan_res <- build_coverage_aware_feature_plan(
-    feature_names = nonzero_feature_cols,
-    random_seeds = random_seeds,
-    fraction = feature_bagging_fraction
-  )
+  if (patient_split_strategy_used == "unseen_patients") {
+    feature_plan_res <- build_patient_coverage_aware_feature_plan(
+      feature_names = nonzero_feature_cols,
+      random_seeds = random_seeds,
+      test_patient_condition_keys = split_plan_res$test_patient_condition_keys,
+      eligible_patient_condition_keys = eligible_patient_condition_keys,
+      fraction = feature_bagging_fraction
+    )
+    patient_feature_coverage_summary <- feature_plan_res$patient_feature_coverage
+    feature_plan_res$patient_feature_counts <- NULL
+  } else {
+    feature_plan_res <- build_coverage_aware_feature_plan(
+      feature_names = nonzero_feature_cols,
+      random_seeds = random_seeds,
+      fraction = feature_bagging_fraction
+    )
+  }
   feature_plans <- feature_plan_res$plans
   feature_bagging_summary <- feature_plan_res$summary
+  if (!is.null(patient_coverage_summary)) {
+    patient_coverage_summary$condition_label <- ifelse(
+      as.character(patient_coverage_summary$condition) == "0",
+      task_what_0,
+      task_what_1
+    )
+  }
   
   task_config_for_docs <- c(
     resolved_config_for_docs,
     list(
       temp_split = temp_split,
       task_what_0 = task_what_0,
-      task_what_1 = task_what_1
+      task_what_1 = task_what_1,
+      patient_split_strategy_requested = patient_split_strategy_requested,
+      patient_split_strategy_used = patient_split_strategy_used,
+      patient_split_fallback_reason = patient_split_fallback_reason
     )
   )
   write_shapture_config_csv(task_config_for_docs, "docs/shapture_config_used.csv")
@@ -1424,6 +1509,38 @@ run_shapture_task <- function(
   write.csv(data.frame(random_seeds = random_seeds), "docs/random_seeds.csv", row.names = FALSE)
   write.csv(sampling_coverage_summary, "docs/sampling_coverage_summary.csv", row.names = FALSE)
   write.csv(feature_bagging_summary, "docs/feature_bagging_summary.csv", row.names = FALSE)
+  patient_split_summary <- data.frame(
+    patient_split_strategy_requested = patient_split_strategy_requested,
+    patient_split_strategy_used = patient_split_strategy_used,
+    fallback_reason = patient_split_fallback_reason,
+    patient_train_fraction = if (patient_split_strategy_requested == "unseen_patients") 0.60 else NA_real_,
+    patient_test_fraction = if (patient_split_strategy_requested == "unseen_patients") 0.40 else NA_real_,
+    min_patients_per_condition = if (patient_split_strategy_requested == "unseen_patients") 5L else NA_integer_,
+    min_units_per_patient = if (patient_split_strategy_requested == "unseen_patients") min_unseen_units_per_patient else NA_integer_,
+    min_train_units_per_condition = if (patient_split_strategy_requested == "unseen_patients") min_unseen_train_units_per_condition else NA_integer_,
+    train_patients_condition0 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_train_patients[[1]] else NA_integer_,
+    train_patients_condition1 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_train_patients[[2]] else NA_integer_,
+    test_patients_condition0 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_test_patients[[1]] else NA_integer_,
+    test_patients_condition1 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_test_patients[[2]] else NA_integer_,
+    train_rows_per_condition = if (patient_split_strategy_used == "unseen_patients") split_plan_res$train_rows_per_condition else NA_integer_,
+    test_rows_per_condition = if (patient_split_strategy_used == "unseen_patients") split_plan_res$test_rows_per_condition else NA_integer_,
+    stringsAsFactors = FALSE
+  )
+  write.csv(patient_split_summary, "docs/patient_split_summary.csv", row.names = FALSE)
+  if (!is.null(patient_coverage_summary)) {
+    write.csv(
+      patient_coverage_summary,
+      "docs/patient_sampling_coverage_summary.csv",
+      row.names = FALSE
+    )
+  }
+  if (!is.null(patient_feature_coverage_summary)) {
+    write.csv(
+      patient_feature_coverage_summary,
+      "docs/patient_feature_coverage_summary.csv",
+      row.names = FALSE
+    )
+  }
   if (!is.null(metacell_summary)) {
     write.csv(
       metacell_summary[metacell_summary$split_level == temp_split, , drop = FALSE],
@@ -1769,7 +1886,27 @@ run_shapture_task <- function(
     sink()
   }
   
-  if ("sample_id" %in% colnames(dataset_task)) {
+  if (patient_split_strategy_used == "unseen_patients" &&
+      !is.null(patient_coverage_summary)) {
+    held_out_patient_counts <- patient_coverage_summary[
+      patient_coverage_summary$eligible &
+        patient_coverage_summary$test_iterations > 0,
+      ,
+      drop = FALSE
+    ]
+    patient_count_condition0 <- length(unique(
+      held_out_patient_counts$patient_id[
+        as.character(held_out_patient_counts$condition) == "0"
+      ]
+    ))
+    patient_count_condition1 <- length(unique(
+      held_out_patient_counts$patient_id[
+        as.character(held_out_patient_counts$condition) == "1"
+      ]
+    ))
+    min_patients <- min(patient_count_condition0, patient_count_condition1)
+    inference_reliable <- is.finite(min_patients) && min_patients >= 3
+  } else if ("sample_id" %in% colnames(dataset_task)) {
     n_patients_per_condition <- dataset_task %>%
       dplyr::group_by(condition) %>%
       dplyr::summarise(n_patients = dplyr::n_distinct(sample_id), .groups = "drop")
@@ -2018,6 +2155,9 @@ run_shapture_task <- function(
     n_patients_condition1 = patient_count_condition1,
     min_patients = min_patients,
     inference_reliable = inference_reliable_flag,
+    patient_split_strategy_requested = patient_split_strategy_requested,
+    patient_split_strategy_used = patient_split_strategy_used,
+    patient_split_fallback_reason = patient_split_fallback_reason,
     patient_level_support_method = unique(combined_results$patient_level_support_method)[1],
     patient_level_support_note = patient_level_support_note,
     shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
@@ -2044,6 +2184,8 @@ run_shapture_task <- function(
     data.frame(
       patient_level_support_method = unique(combined_results$patient_level_support_method)[1],
       patient_level_support_plot_label = patient_level_support_plot_label,
+      patient_split_strategy_requested = patient_split_strategy_requested,
+      patient_split_strategy_used = patient_split_strategy_used,
       shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
       patient_level_support_note = patient_level_support_note,
       stringsAsFactors = FALSE
@@ -2109,6 +2251,33 @@ run_shapture_task <- function(
     model_type = model_type,
     preprocessing_method = preprocessing_method,
     patient_balance_method = patient_balance_method,
+    patient_split_strategy_requested = patient_split_strategy_requested,
+    patient_split_strategy_used = patient_split_strategy_used,
+    patient_split_fallback_reason = patient_split_fallback_reason,
+    unseen_patient_train_fraction = if (patient_split_strategy_used == "unseen_patients") 0.60 else NA_real_,
+    unseen_patient_test_fraction = if (patient_split_strategy_used == "unseen_patients") 0.40 else NA_real_,
+    unseen_min_patients_per_condition = if (patient_split_strategy_requested == "unseen_patients") 5L else NA_integer_,
+    unseen_min_units_per_patient = if (patient_split_strategy_requested == "unseen_patients") min_unseen_units_per_patient else NA_integer_,
+    unseen_min_train_units_per_condition = if (patient_split_strategy_requested == "unseen_patients") min_unseen_train_units_per_condition else NA_integer_,
+    train_patients_condition0 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_train_patients[[1]] else NA_integer_,
+    train_patients_condition1 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_train_patients[[2]] else NA_integer_,
+    test_patients_condition0 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_test_patients[[1]] else NA_integer_,
+    test_patients_condition1 = if (patient_split_strategy_used == "unseen_patients") split_plan_res$n_test_patients[[2]] else NA_integer_,
+    min_patient_test_iterations = if (patient_split_strategy_used == "unseen_patients") {
+      min(patient_coverage_summary$test_iterations[patient_coverage_summary$eligible])
+    } else {
+      NA_real_
+    },
+    median_patient_test_iterations = if (patient_split_strategy_used == "unseen_patients") {
+      stats::median(patient_coverage_summary$test_iterations[patient_coverage_summary$eligible])
+    } else {
+      NA_real_
+    },
+    max_patient_test_iterations = if (patient_split_strategy_used == "unseen_patients") {
+      max(patient_coverage_summary$test_iterations[patient_coverage_summary$eligible])
+    } else {
+      NA_real_
+    },
     memory_mode = memory_mode,
     iteration_no = iteration_no,
     feature_min_pct = feature_min_pct,
@@ -2145,6 +2314,21 @@ run_shapture_task <- function(
     max_gene_inclusion_count = feature_bagging_summary$max_gene_inclusion_count[1],
     unique_features_included_by_feature_bagging = feature_bagging_summary$unique_features_included[1],
     percent_features_included_by_feature_bagging = feature_bagging_summary$percent_features_included[1],
+    min_patient_condition_coverage_per_gene = if (is.null(patient_feature_coverage_summary)) {
+      NA_real_
+    } else {
+      min(patient_feature_coverage_summary$patient_condition_units_with_shap)
+    },
+    median_patient_condition_coverage_per_gene = if (is.null(patient_feature_coverage_summary)) {
+      NA_real_
+    } else {
+      stats::median(patient_feature_coverage_summary$patient_condition_units_with_shap)
+    },
+    max_patient_condition_coverage_per_gene = if (is.null(patient_feature_coverage_summary)) {
+      NA_real_
+    } else {
+      max(patient_feature_coverage_summary$patient_condition_units_with_shap)
+    },
     n_features_before_shap_expr_cor_direction_filter = n_features_before_direction_filter,
     n_features_after_shap_expr_cor_direction_filter = n_features_after_direction_filter,
     n_features_before_model_expression_pattern_filter = unique(combined_results$n_features_before_model_expression_pattern_filter)[1],
@@ -2334,6 +2518,10 @@ run_shapture_task <- function(
 #' @param analysis_unit_type Either `"single_cell"` or `"metacell"`.
 #' @param memory_mode Either `"full"` or `"safe"`.
 #' @param patient_balance_method Patient balancing method.
+#' @param patient_split_strategy `"shared_patients"` keeps the existing
+#'   coverage-aware cell/metacell split and permits patient overlap between
+#'   training and testing. `"unseen_patients"` uses globally disjoint patient
+#'   folds with a rounded 60%/40% train/test allocation and task-level fallback.
 #' @param shap_expr_cor_direction_filter Direction filter for value-to-SHAP
 #'   correlations.
 #' @param group_colors Two unnamed colors used for left/right group displays.
@@ -2390,6 +2578,7 @@ run_shapture_pipeline <- function(
     analysis_unit_type = "metacell",
     memory_mode = "full",
     patient_balance_method = "model_weights",
+    patient_split_strategy = "shared_patients",
     shap_expr_cor_direction_filter = "both",
     group_colors = c("darkblue", "darkred"),
     continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
@@ -2425,6 +2614,10 @@ run_shapture_pipeline <- function(
   comparison_mode <- normalize_comparison_mode(comparison_mode)
   comparison_mode <- match.arg(comparison_mode, c("condition_vs_condition", "one_vs_others"))
   memory_mode <- match.arg(memory_mode, c("full", "safe"))
+  patient_split_strategy <- match.arg(
+    patient_split_strategy,
+    c("shared_patients", "unseen_patients")
+  )
   score_scaling_method <- match.arg(score_scaling_method)
   if (!is.numeric(feature_min_pct) ||
       length(feature_min_pct) != 1 ||
@@ -2519,6 +2712,7 @@ run_shapture_pipeline <- function(
     analysis_unit_type = analysis_unit_type,
     memory_mode = memory_mode,
     patient_balance_method = patient_balance_method,
+    patient_split_strategy = patient_split_strategy,
     shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
     group_colors = group_colors,
     continuous_colors = continuous_colors,
@@ -2656,6 +2850,7 @@ run_shapture_pipeline <- function(
       analysis_unit_type = analysis_unit_type,
       memory_mode = memory_mode,
       patient_balance_method = patient_balance_method,
+      patient_split_strategy = patient_split_strategy,
       shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
       default_prior_scores_weights = default_prior_scores_weights,
       resolved_config_for_docs = resolved_config_for_docs

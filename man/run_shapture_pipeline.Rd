@@ -37,6 +37,7 @@ run_shapture_pipeline(
   analysis_unit_type = "metacell",
   memory_mode = "full",
   patient_balance_method = "model_weights",
+  patient_split_strategy = "shared_patients",
   shap_expr_cor_direction_filter = "both",
   group_colors = c("darkblue", "darkred"),
   continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
@@ -130,6 +131,11 @@ score components.}
 \item{memory_mode}{Either \code{"full"} or \code{"safe"}.}
 
 \item{patient_balance_method}{Patient balancing method.}
+
+\item{patient_split_strategy}{\code{"shared_patients"} keeps the existing
+coverage-aware cell/metacell split and permits patient overlap between
+training and testing. \code{"unseen_patients"} uses globally disjoint patient
+folds with a rounded 60\%/40\% train/test allocation and task-level fallback.}
 
 \item{shap_expr_cor_direction_filter}{Direction filter for value-to-SHAP
 correlations.}

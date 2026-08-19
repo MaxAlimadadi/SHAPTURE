@@ -374,11 +374,17 @@ build_coverage_aware_split_plan <- function(
       candidate_prob <- NULL
       if (!is.null(probs)) {
         candidate_prob <- probs[match(candidates, idx_pool)]
-        if (all(!is.finite(candidate_prob)) || sum(candidate_prob, na.rm = TRUE) <= 0) {
+        candidate_prob[!is.finite(candidate_prob)] <- 0
+        if (sum(candidate_prob) <= 0) {
           candidate_prob <- NULL
         }
       }
-      chosen <- sample(candidates, size = take_n, replace = FALSE, prob = candidate_prob)
+      chosen <- candidates[sample.int(
+        length(candidates),
+        size = take_n,
+        replace = FALSE,
+        prob = candidate_prob
+      )]
       selected <- c(selected, chosen)
       remaining <- setdiff(remaining, chosen)
     }
@@ -422,16 +428,19 @@ build_coverage_aware_split_plan <- function(
         dataset[[sampling_prob_col]][remaining_idx]
       }
       if (!is.null(train_probs) &&
-          (all(!is.finite(train_probs)) || sum(train_probs, na.rm = TRUE) <= 0)) {
+          any(!is.finite(train_probs))) {
+        train_probs[!is.finite(train_probs)] <- 0
+      }
+      if (!is.null(train_probs) && sum(train_probs) <= 0) {
         train_probs <- NULL
       }
       set.seed(seed + 2000L * level_idx)
-      train_idx <- sample(
-        remaining_idx,
+      train_idx <- remaining_idx[sample.int(
+        length(remaining_idx),
         size = n_train_per_group,
         replace = FALSE,
         prob = train_probs
-      )
+      )]
       
       test_counts[unit_ids[test_idx]] <- test_counts[unit_ids[test_idx]] + 1L
       train_counts[unit_ids[train_idx]] <- train_counts[unit_ids[train_idx]] + 1L
@@ -473,6 +482,674 @@ build_coverage_aware_split_plan <- function(
     coverage_summary = coverage_summary,
     test_counts = test_counts,
     train_counts = train_counts
+  )
+}
+
+
+#' Select patients with balanced held-out coverage
+#'
+#' @param pool Candidate patient IDs.
+#' @param n Number to select.
+#' @param test_counts Named patient-level test counts.
+#' @param already_selected Patient IDs already selected in the current fold.
+#' @param pair_counts Symmetric matrix of prior test-pair counts.
+#' @param seed Random seed for deterministic tie-breaking.
+#'
+#' @return Character vector of selected patient IDs.
+#' @noRd
+.select_coverage_aware_patients <- function(
+    pool,
+    n,
+    test_counts,
+    already_selected = character(0),
+    pair_counts,
+    seed
+) {
+  pool <- unique(as.character(pool))
+  pool <- pool[!is.na(pool) & nzchar(pool)]
+  if (n == 0) {
+    return(character(0))
+  }
+  if (length(pool) < n) {
+    stop("Not enough patients in a required eligibility pool.")
+  }
+
+  set.seed(seed)
+  selected <- character(0)
+  for (slot in seq_len(n)) {
+    candidates <- setdiff(pool, selected)
+    candidate_counts <- test_counts[candidates]
+    candidates <- candidates[candidate_counts == min(candidate_counts)]
+
+    current_selected <- unique(c(already_selected, selected))
+    if (length(current_selected) > 0 && length(candidates) > 1) {
+      pair_score <- rowSums(
+        pair_counts[candidates, current_selected, drop = FALSE]
+      )
+      candidates <- candidates[pair_score == min(pair_score)]
+    }
+
+    selected <- c(selected, sample(candidates, size = 1L))
+  }
+  selected
+}
+
+
+#' Allocate a balanced row quota across selected patients
+#'
+#' @param available Named available-row counts by patient.
+#' @param total Total rows to allocate.
+#' @param minimum_each Minimum rows required from every selected patient.
+#' @param seed Random seed for deterministic tie-breaking.
+#'
+#' @return Named integer quota vector.
+#' @noRd
+.allocate_patient_row_quotas <- function(available, total, minimum_each, seed) {
+  available_names <- names(available)
+  available <- as.integer(available)
+  names(available) <- available_names
+  n_patients <- length(available)
+  if (n_patients == 0) {
+    stop("No patients are available for row allocation.")
+  }
+  if (any(available < minimum_each)) {
+    stop("A selected patient has fewer rows than the required minimum.")
+  }
+  if (total < n_patients * minimum_each || total > sum(available)) {
+    stop("Requested row total is incompatible with patient-level row limits.")
+  }
+
+  quotas <- stats::setNames(rep(as.integer(minimum_each), n_patients), names(available))
+  remaining <- as.integer(total - sum(quotas))
+  set.seed(seed)
+  while (remaining > 0L) {
+    candidates <- names(quotas)[quotas < available]
+    if (length(candidates) == 0) {
+      stop("Unable to complete patient-balanced row allocation.")
+    }
+    min_quota <- min(quotas[candidates])
+    candidates <- candidates[quotas[candidates] == min_quota]
+    chosen <- sample(candidates, size = 1L)
+    quotas[chosen] <- quotas[chosen] + 1L
+    remaining <- remaining - 1L
+  }
+  quotas
+}
+
+
+#' Select rows within patients using unit-level coverage
+#'
+#' @param dataset Task data.
+#' @param condition_level Current condition level.
+#' @param patient_ids Selected patient IDs.
+#' @param total_rows Total rows to select.
+#' @param minimum_each Minimum rows required from every selected patient.
+#' @param balance_across_patients Whether to allocate nearly equal row quotas
+#'   across patients. This is used for held-out test data; training keeps the
+#'   existing sampling and model-balancing behavior after representing each
+#'   selected patient.
+#' @param unit_counts Named prior unit-level appearance counts.
+#' @param condition_col Condition column.
+#' @param sample_col Patient column.
+#' @param unit_col Stable unit-ID column.
+#' @param sampling_prob_col Optional row sampling-probability column.
+#' @param seed Random seed.
+#'
+#' @return Integer row indices.
+#' @noRd
+.select_patient_balanced_rows <- function(
+    dataset,
+    condition_level,
+    patient_ids,
+    total_rows,
+    minimum_each,
+    balance_across_patients = TRUE,
+    unit_counts,
+    condition_col,
+    sample_col,
+    unit_col,
+    sampling_prob_col,
+    seed
+) {
+  patient_ids <- unique(as.character(patient_ids))
+  condition_values <- as.character(dataset[[condition_col]])
+  sample_values <- as.character(dataset[[sample_col]])
+  unit_ids <- as.character(dataset[[unit_col]])
+
+  pools <- lapply(patient_ids, function(patient_id) {
+    which(
+      condition_values == as.character(condition_level) &
+        sample_values == patient_id
+    )
+  })
+  names(pools) <- patient_ids
+  available <- vapply(pools, length, integer(1))
+  if (!balance_across_patients) {
+    if (any(available < minimum_each) ||
+        total_rows < length(patient_ids) * minimum_each ||
+        total_rows > sum(available)) {
+      stop("Requested training rows are incompatible with the selected patients.")
+    }
+
+    set.seed(seed)
+    selected <- integer(0)
+    for (patient_idx in seq_along(patient_ids)) {
+      pool <- pools[[patient_ids[patient_idx]]]
+      patient_prob <- if (is.null(sampling_prob_col)) {
+        NULL
+      } else {
+        dataset[[sampling_prob_col]][pool]
+      }
+      if (!is.null(patient_prob)) {
+        patient_prob[!is.finite(patient_prob)] <- 0
+        if (sum(patient_prob) <= 0) {
+          patient_prob <- NULL
+        }
+      }
+      chosen <- pool[sample.int(
+        length(pool),
+        size = minimum_each,
+        replace = FALSE,
+        prob = patient_prob
+      )]
+      selected <- c(selected, chosen)
+    }
+
+    remaining_needed <- total_rows - length(selected)
+    if (remaining_needed > 0L) {
+      remaining <- setdiff(unlist(pools, use.names = FALSE), selected)
+      remaining_prob <- if (is.null(sampling_prob_col)) {
+        NULL
+      } else {
+        dataset[[sampling_prob_col]][remaining]
+      }
+      if (!is.null(remaining_prob)) {
+        remaining_prob[!is.finite(remaining_prob)] <- 0
+        if (sum(remaining_prob) <= 0) {
+          remaining_prob <- NULL
+        }
+      }
+      selected <- c(
+        selected,
+        remaining[sample.int(
+          length(remaining),
+          size = remaining_needed,
+          replace = FALSE,
+          prob = remaining_prob
+        )]
+      )
+    }
+    return(selected)
+  }
+
+  quotas <- .allocate_patient_row_quotas(
+    available = available,
+    total = total_rows,
+    minimum_each = minimum_each,
+    seed = seed
+  )
+
+  selected <- integer(0)
+  for (patient_idx in seq_along(patient_ids)) {
+    patient_id <- patient_ids[patient_idx]
+    pool <- pools[[patient_id]]
+    quota <- quotas[[patient_id]]
+    set.seed(seed + patient_idx * 1009L)
+    patient_selected <- integer(0)
+    remaining <- pool
+
+    while (length(patient_selected) < quota) {
+      remaining_counts <- unit_counts[unit_ids[remaining]]
+      candidates <- remaining[remaining_counts == min(remaining_counts)]
+      need <- quota - length(patient_selected)
+      take_n <- min(need, length(candidates))
+      candidate_prob <- NULL
+      if (!is.null(sampling_prob_col)) {
+        candidate_prob <- dataset[[sampling_prob_col]][candidates]
+        candidate_prob[!is.finite(candidate_prob)] <- 0
+        if (sum(candidate_prob) <= 0) {
+          candidate_prob <- NULL
+        }
+      }
+      chosen <- candidates[sample.int(
+        length(candidates),
+        size = take_n,
+        replace = FALSE,
+        prob = candidate_prob
+      )]
+      patient_selected <- c(patient_selected, chosen)
+      remaining <- setdiff(remaining, chosen)
+    }
+    selected <- c(selected, patient_selected)
+  }
+  selected
+}
+
+
+#' Build coverage-aware unseen-patient split plans
+#'
+#' Constructs repeated train/test plans with global patient separation. Patients
+#' are eligible only when they meet the task-specific minimum row count in a
+#' condition. Sixty percent of eligible patients are assigned to training and
+#' the remaining forty percent to testing, with rounded counts and a minimum of
+#' three training and two testing patients per condition.
+#'
+#' @param dataset Task data containing condition, patient, and stable unit IDs.
+#' @param random_seeds Integer vector of per-iteration seeds.
+#' @param train_ratio Existing row-level training fraction used to retain the
+#'   current SHAPTURE row budget.
+#' @param test_ratio Existing row-level testing fraction used to retain the
+#'   current SHAPTURE row budget.
+#' @param each_condition_total_sample_no Current target row budget per condition.
+#' @param condition_col Binary condition column.
+#' @param sample_col Patient/sample identifier column.
+#' @param unit_col Stable cell/metacell identifier column.
+#' @param sampling_prob_col Optional row sampling-probability column.
+#' @param min_patients_per_condition Minimum eligible patients per condition.
+#' @param patient_train_fraction Fraction of eligible patients assigned to train.
+#' @param min_units_per_patient Minimum available and selected test units per
+#'   patient and condition.
+#' @param min_train_units_per_condition Minimum training rows per condition.
+#'
+#' @return A list with `success`, split plans, patient and unit coverage, and
+#'   audit metadata. Eligibility failures return `success = FALSE` and a reason.
+#' @export
+build_unseen_patient_split_plan <- function(
+    dataset,
+    random_seeds,
+    train_ratio,
+    test_ratio,
+    each_condition_total_sample_no,
+    condition_col = "condition",
+    sample_col = "sample_id",
+    unit_col = ".shapture_unit_id",
+    sampling_prob_col = NULL,
+    min_patients_per_condition = 5L,
+    patient_train_fraction = 0.60,
+    min_units_per_patient = 20L,
+    min_train_units_per_condition = 50L
+) {
+  if (!is.data.frame(dataset)) {
+    stop("dataset must be a data frame.")
+  }
+  if (!is.numeric(random_seeds) || length(random_seeds) < 1L ||
+      any(!is.finite(random_seeds))) {
+    stop("random_seeds must contain at least one finite numeric seed.")
+  }
+  validate_positive_integer <- function(x, name) {
+    if (!is.numeric(x) || length(x) != 1L || !is.finite(x) ||
+        x < 1 || x != as.integer(x)) {
+      stop(name, " must be one positive integer.")
+    }
+  }
+  validate_fraction <- function(x, name, allow_one = TRUE) {
+    upper_ok <- if (allow_one) x <= 1 else x < 1
+    if (!is.numeric(x) || length(x) != 1L || !is.finite(x) ||
+        x <= 0 || !upper_ok) {
+      stop(name, " must be one value in (0, ", if (allow_one) "1]." else "1).")
+    }
+  }
+  validate_fraction(train_ratio, "train_ratio")
+  validate_fraction(test_ratio, "test_ratio")
+  validate_fraction(patient_train_fraction, "patient_train_fraction", allow_one = FALSE)
+  validate_positive_integer(each_condition_total_sample_no, "each_condition_total_sample_no")
+  validate_positive_integer(min_patients_per_condition, "min_patients_per_condition")
+  validate_positive_integer(min_units_per_patient, "min_units_per_patient")
+  validate_positive_integer(min_train_units_per_condition, "min_train_units_per_condition")
+
+  required_cols <- c(condition_col, sample_col, unit_col)
+  if (!all(required_cols %in% colnames(dataset))) {
+    stop("Unseen-patient split planning is missing required columns: ",
+         paste(setdiff(required_cols, colnames(dataset)), collapse = ", "))
+  }
+  if (!is.null(sampling_prob_col) && !sampling_prob_col %in% colnames(dataset)) {
+    stop("sampling_prob_col is missing from dataset.")
+  }
+  unit_ids <- as.character(dataset[[unit_col]])
+  if (anyNA(unit_ids) || any(!nzchar(unit_ids)) || anyDuplicated(unit_ids)) {
+    stop("unit_col must uniquely identify every row for unseen-patient planning.")
+  }
+  sample_values <- as.character(dataset[[sample_col]])
+  condition_values <- as.character(dataset[[condition_col]])
+  if (anyNA(sample_values) || any(!nzchar(sample_values))) {
+    stop("sample_col must contain non-empty patient IDs for unseen-patient planning.")
+  }
+  if (anyNA(condition_values) || any(!nzchar(condition_values))) {
+    stop("condition_col must contain non-empty values for unseen-patient planning.")
+  }
+
+  condition_levels <- levels(factor(dataset[[condition_col]]))
+  if (length(condition_levels) != 2L) {
+    stop("Unseen-patient split planning currently expects exactly 2 condition levels.")
+  }
+
+  count_table <- as.data.frame(
+    table(
+      patient_id = sample_values,
+      condition = condition_values
+    ),
+    stringsAsFactors = FALSE
+  )
+  names(count_table)[3] <- "available_units"
+  count_table <- count_table[count_table$available_units > 0, , drop = FALSE]
+  count_table$eligible <- count_table$available_units >= min_units_per_patient
+
+  eligible_by_condition <- stats::setNames(
+    lapply(condition_levels, function(level) {
+      as.character(count_table$patient_id[
+        count_table$condition == level & count_table$eligible
+      ])
+    }),
+    condition_levels
+  )
+  eligible_counts <- vapply(eligible_by_condition, length, integer(1))
+  if (any(eligible_counts < min_patients_per_condition)) {
+    reason <- paste0(
+      "unseen_patients requires at least ", min_patients_per_condition,
+      " eligible patients per condition after requiring at least ",
+      min_units_per_patient, " units per patient; observed ",
+      paste(paste0(names(eligible_counts), "=", eligible_counts), collapse = ", "),
+      "."
+    )
+    return(list(
+      success = FALSE,
+      reason = reason,
+      patient_coverage_summary = count_table
+    ))
+  }
+
+  n_train_patients <- as.integer(round(patient_train_fraction * eligible_counts))
+  n_test_patients <- eligible_counts - n_train_patients
+  if (any(n_train_patients < 3L) || any(n_test_patients < 2L)) {
+    reason <- paste0(
+      "The rounded 60/40 patient split does not leave at least three training ",
+      "and two testing patients per condition."
+    )
+    return(list(
+      success = FALSE,
+      reason = reason,
+      patient_coverage_summary = count_table
+    ))
+  }
+
+  eligible_0 <- eligible_by_condition[[1]]
+  eligible_1 <- eligible_by_condition[[2]]
+  shared <- intersect(eligible_0, eligible_1)
+  only_0 <- setdiff(eligible_0, shared)
+  only_1 <- setdiff(eligible_1, shared)
+  n_test_0 <- n_test_patients[[1]]
+  n_test_1 <- n_test_patients[[2]]
+  min_shared_test <- max(0L, n_test_0 - length(only_0), n_test_1 - length(only_1))
+  max_shared_test <- min(n_test_0, n_test_1, length(shared))
+  if (min_shared_test > max_shared_test) {
+    return(list(
+      success = FALSE,
+      reason = "No globally separated patient partition can satisfy the rounded 60/40 split in both conditions.",
+      patient_coverage_summary = count_table
+    ))
+  }
+  n_shared_test <- max_shared_test
+  n_only_0_test <- n_test_0 - n_shared_test
+  n_only_1_test <- n_test_1 - n_shared_test
+
+  all_eligible_patients <- sort(unique(c(eligible_0, eligible_1)))
+  patient_test_counts <- stats::setNames(
+    rep(0L, length(all_eligible_patients)),
+    all_eligible_patients
+  )
+  pair_counts <- matrix(
+    0L,
+    nrow = length(all_eligible_patients),
+    ncol = length(all_eligible_patients),
+    dimnames = list(all_eligible_patients, all_eligible_patients)
+  )
+  patient_plans <- vector("list", length(random_seeds))
+
+  for (iter_idx in seq_along(random_seeds)) {
+    seed <- as.integer(random_seeds[iter_idx])
+    selected_shared <- .select_coverage_aware_patients(
+      pool = shared,
+      n = n_shared_test,
+      test_counts = patient_test_counts,
+      pair_counts = pair_counts,
+      seed = seed + 300001L
+    )
+    selected_only_0 <- .select_coverage_aware_patients(
+      pool = only_0,
+      n = n_only_0_test,
+      test_counts = patient_test_counts,
+      already_selected = selected_shared,
+      pair_counts = pair_counts,
+      seed = seed + 300101L
+    )
+    selected_only_1 <- .select_coverage_aware_patients(
+      pool = only_1,
+      n = n_only_1_test,
+      test_counts = patient_test_counts,
+      already_selected = c(selected_shared, selected_only_0),
+      pair_counts = pair_counts,
+      seed = seed + 300201L
+    )
+    test_patients_global <- unique(c(
+      selected_shared,
+      selected_only_0,
+      selected_only_1
+    ))
+    test_by_condition <- list(
+      intersect(test_patients_global, eligible_0),
+      intersect(test_patients_global, eligible_1)
+    )
+    names(test_by_condition) <- condition_levels
+    train_by_condition <- list(
+      setdiff(eligible_0, test_patients_global),
+      setdiff(eligible_1, test_patients_global)
+    )
+    names(train_by_condition) <- condition_levels
+
+    if (any(vapply(test_by_condition, length, integer(1)) != n_test_patients) ||
+        any(vapply(train_by_condition, length, integer(1)) != n_train_patients)) {
+      stop("Internal patient-partition counts do not match the requested 60/40 split.")
+    }
+
+    patient_plans[[iter_idx]] <- list(
+      test_patients_global = test_patients_global,
+      test_by_condition = test_by_condition,
+      train_by_condition = train_by_condition
+    )
+    patient_test_counts[test_patients_global] <-
+      patient_test_counts[test_patients_global] + 1L
+    if (length(test_patients_global) > 1L) {
+      pair_grid <- utils::combn(test_patients_global, 2L)
+      for (pair_idx in seq_len(ncol(pair_grid))) {
+        p1 <- pair_grid[1, pair_idx]
+        p2 <- pair_grid[2, pair_idx]
+        pair_counts[p1, p2] <- pair_counts[p1, p2] + 1L
+        pair_counts[p2, p1] <- pair_counts[p2, p1] + 1L
+      }
+    }
+  }
+
+  available_train <- matrix(0L, nrow = length(patient_plans), ncol = 2L)
+  available_test <- matrix(0L, nrow = length(patient_plans), ncol = 2L)
+  for (iter_idx in seq_along(patient_plans)) {
+    for (condition_idx in seq_along(condition_levels)) {
+      level <- condition_levels[condition_idx]
+      available_train[iter_idx, condition_idx] <- sum(
+        condition_values == level &
+          sample_values %in% patient_plans[[iter_idx]]$train_by_condition[[level]]
+      )
+      available_test[iter_idx, condition_idx] <- sum(
+        condition_values == level &
+          sample_values %in% patient_plans[[iter_idx]]$test_by_condition[[level]]
+      )
+    }
+  }
+
+  n_available_per_group <- min(table(dataset[[condition_col]]))
+  requested_per_group <- min(
+    as.integer(each_condition_total_sample_no),
+    as.integer(n_available_per_group)
+  )
+  base_train_rows <- max(1L, floor(train_ratio * requested_per_group))
+  base_test_rows <- max(1L, floor(test_ratio * requested_per_group))
+  minimum_test_rows <- max(n_test_patients * min_units_per_patient)
+  train_rows_per_condition <- min(
+    max(base_train_rows, min_train_units_per_condition),
+    min(available_train)
+  )
+  test_rows_per_condition <- min(
+    max(base_test_rows, minimum_test_rows),
+    min(available_test)
+  )
+  if (train_rows_per_condition < min_train_units_per_condition ||
+      test_rows_per_condition < minimum_test_rows) {
+    reason <- paste0(
+      "No fixed patient-held-out row budget can satisfy at least ",
+      min_train_units_per_condition, " training units per condition and ",
+      min_units_per_patient, " testing units per selected patient."
+    )
+    return(list(
+      success = FALSE,
+      reason = reason,
+      patient_coverage_summary = count_table
+    ))
+  }
+
+  test_unit_counts <- stats::setNames(rep(0L, nrow(dataset)), unit_ids)
+  train_unit_counts <- stats::setNames(rep(0L, nrow(dataset)), unit_ids)
+  plans <- vector("list", length(random_seeds))
+  test_patient_condition_keys <- vector("list", length(random_seeds))
+
+  for (iter_idx in seq_along(random_seeds)) {
+    seed <- as.integer(random_seeds[iter_idx])
+    train_indices <- integer(0)
+    test_indices <- integer(0)
+    iteration_keys <- character(0)
+    for (condition_idx in seq_along(condition_levels)) {
+      level <- condition_levels[condition_idx]
+      test_patients <- patient_plans[[iter_idx]]$test_by_condition[[level]]
+      train_patients <- patient_plans[[iter_idx]]$train_by_condition[[level]]
+      test_idx <- .select_patient_balanced_rows(
+        dataset = dataset,
+        condition_level = level,
+        patient_ids = test_patients,
+        total_rows = test_rows_per_condition,
+        minimum_each = min_units_per_patient,
+        balance_across_patients = TRUE,
+        unit_counts = test_unit_counts,
+        condition_col = condition_col,
+        sample_col = sample_col,
+        unit_col = unit_col,
+        sampling_prob_col = sampling_prob_col,
+        seed = seed + condition_idx * 400001L
+      )
+      train_idx <- .select_patient_balanced_rows(
+        dataset = dataset,
+        condition_level = level,
+        patient_ids = train_patients,
+        total_rows = train_rows_per_condition,
+        minimum_each = 1L,
+        balance_across_patients = FALSE,
+        unit_counts = train_unit_counts,
+        condition_col = condition_col,
+        sample_col = sample_col,
+        unit_col = unit_col,
+        sampling_prob_col = sampling_prob_col,
+        seed = seed + condition_idx * 500009L
+      )
+      test_indices <- c(test_indices, test_idx)
+      train_indices <- c(train_indices, train_idx)
+      iteration_keys <- c(
+        iteration_keys,
+        paste(level, test_patients, sep = "::")
+      )
+    }
+
+    train_patients_used <- unique(sample_values[train_indices])
+    test_patients_used <- unique(sample_values[test_indices])
+    overlapping_patients <- intersect(train_patients_used, test_patients_used)
+    if (length(overlapping_patients) > 0L) {
+      stop(
+        "Patient leakage detected in unseen-patient split iteration ",
+        iter_idx, ": ", paste(overlapping_patients, collapse = ", "),
+        ". Planned test patients: ",
+        paste(patient_plans[[iter_idx]]$test_patients_global, collapse = ", "),
+        ". Planned condition-0 train patients: ",
+        paste(patient_plans[[iter_idx]]$train_by_condition[[condition_levels[1]]], collapse = ", "),
+        ". Actual train patients: ", paste(train_patients_used, collapse = ", "),
+        ". Actual test patients: ", paste(test_patients_used, collapse = ", "),
+        "."
+      )
+    }
+    test_unit_counts[unit_ids[test_indices]] <-
+      test_unit_counts[unit_ids[test_indices]] + 1L
+    train_unit_counts[unit_ids[train_indices]] <-
+      train_unit_counts[unit_ids[train_indices]] + 1L
+    plans[[iter_idx]] <- list(
+      unit_col = unit_col,
+      train_unit_ids = unit_ids[train_indices],
+      test_unit_ids = unit_ids[test_indices],
+      train_patient_ids = train_patients_used,
+      test_patient_ids = test_patients_used
+    )
+    test_patient_condition_keys[[iter_idx]] <- unique(iteration_keys)
+  }
+
+  unit_coverage_summary <- do.call(rbind, lapply(condition_levels, function(level) {
+    idx <- which(condition_values == level)
+    ids <- unit_ids[idx]
+    data.frame(
+      condition = level,
+      total_units = length(ids),
+      unique_test_units = sum(test_unit_counts[ids] > 0),
+      percent_test_units = round(100 * mean(test_unit_counts[ids] > 0), 2),
+      min_test_appearances = min(test_unit_counts[ids]),
+      median_test_appearances = stats::median(test_unit_counts[ids]),
+      max_test_appearances = max(test_unit_counts[ids]),
+      unique_train_units = sum(train_unit_counts[ids] > 0),
+      percent_train_units = round(100 * mean(train_unit_counts[ids] > 0), 2),
+      min_train_appearances = min(train_unit_counts[ids]),
+      median_train_appearances = stats::median(train_unit_counts[ids]),
+      max_train_appearances = max(train_unit_counts[ids]),
+      train_rows_across_iterations = sum(train_unit_counts[ids]),
+      test_rows_across_iterations = sum(test_unit_counts[ids]),
+      stringsAsFactors = FALSE
+    )
+  }))
+
+  count_table$test_iterations <- vapply(seq_len(nrow(count_table)), function(i) {
+    if (!count_table$eligible[i]) {
+      return(0L)
+    }
+    patient_id <- as.character(count_table$patient_id[i])
+    condition <- as.character(count_table$condition[i])
+    sum(vapply(patient_plans, function(plan) {
+      patient_id %in% plan$test_by_condition[[condition]]
+    }, logical(1)))
+  }, integer(1))
+  count_table$train_iterations <- ifelse(
+    count_table$eligible,
+    length(random_seeds) - count_table$test_iterations,
+    0L
+  )
+
+  list(
+    success = TRUE,
+    reason = NA_character_,
+    plans = plans,
+    coverage_summary = unit_coverage_summary,
+    patient_coverage_summary = count_table,
+    test_counts = test_unit_counts,
+    train_counts = train_unit_counts,
+    test_patient_condition_keys = test_patient_condition_keys,
+    patient_train_fraction = patient_train_fraction,
+    patient_test_fraction = 1 - patient_train_fraction,
+    n_train_patients = n_train_patients,
+    n_test_patients = n_test_patients,
+    train_rows_per_condition = as.integer(train_rows_per_condition),
+    test_rows_per_condition = as.integer(test_rows_per_condition),
+    min_units_per_patient = as.integer(min_units_per_patient),
+    min_train_units_per_condition = as.integer(min_train_units_per_condition)
   )
 }
 
@@ -548,6 +1225,138 @@ build_coverage_aware_feature_plan <- function(
     plans = plans,
     summary = summary,
     inclusion_counts = inclusion_counts
+  )
+}
+
+
+#' Build feature plans coordinated with held-out patient coverage
+#'
+#' Prioritizes features with the fewest previous observations among the patient-
+#' condition units held out in the current iteration, then uses overall feature
+#' inclusion counts and seeded random values to break ties.
+#'
+#' @param feature_names Character vector of candidate features.
+#' @param random_seeds Integer vector of per-iteration seeds.
+#' @param test_patient_condition_keys List of held-out patient-condition keys by
+#'   iteration.
+#' @param eligible_patient_condition_keys Optional complete vector of eligible
+#'   patient-condition keys. Supplying this keeps never-held-out patients in the
+#'   coverage denominator with zero observations.
+#' @param fraction Fraction of candidate features included per iteration.
+#'
+#' @return Feature plans, standard feature-bagging summary, and patient-feature
+#'   coverage table.
+#' @export
+build_patient_coverage_aware_feature_plan <- function(
+    feature_names,
+    random_seeds,
+    test_patient_condition_keys,
+    eligible_patient_condition_keys = NULL,
+    fraction = 0.20
+) {
+  feature_names <- unique(as.character(feature_names))
+  feature_names <- feature_names[!is.na(feature_names) & nzchar(feature_names)]
+  if (length(feature_names) == 0L) {
+    stop("feature_names must contain at least one feature.")
+  }
+  if (length(test_patient_condition_keys) != length(random_seeds)) {
+    stop("test_patient_condition_keys must align with random_seeds.")
+  }
+  planned_patient_keys <- sort(unique(unlist(
+    test_patient_condition_keys,
+    use.names = FALSE
+  )))
+  all_patient_keys <- if (is.null(eligible_patient_condition_keys)) {
+    planned_patient_keys
+  } else {
+    sort(unique(as.character(eligible_patient_condition_keys)))
+  }
+  all_patient_keys <- all_patient_keys[!is.na(all_patient_keys) & nzchar(all_patient_keys)]
+  if (length(all_patient_keys) == 0L) {
+    stop("No eligible patient-condition keys were supplied for feature planning.")
+  }
+  if (!all(planned_patient_keys %in% all_patient_keys)) {
+    stop("Every held-out patient-condition key must be included in the eligible key set.")
+  }
+  if (!is.numeric(fraction) || length(fraction) != 1L ||
+      !is.finite(fraction) || fraction <= 0 || fraction > 1) {
+    stop("fraction must be one finite numeric value in (0, 1].")
+  }
+
+  n_per_iteration <- min(
+    length(feature_names),
+    max(1L, ceiling(length(feature_names) * fraction))
+  )
+  inclusion_counts <- stats::setNames(rep(0L, length(feature_names)), feature_names)
+  patient_feature_counts <- matrix(
+    0L,
+    nrow = length(feature_names),
+    ncol = length(all_patient_keys),
+    dimnames = list(feature_names, all_patient_keys)
+  )
+  plans <- vector("list", length(random_seeds))
+
+  for (iter_idx in seq_along(random_seeds)) {
+    current_keys <- unique(test_patient_condition_keys[[iter_idx]])
+    current_keys <- intersect(current_keys, all_patient_keys)
+    current_patient_units_covered <- rowSums(
+      patient_feature_counts[, current_keys, drop = FALSE] > 0L
+    )
+    patient_coverage_score <- rowSums(
+      patient_feature_counts[, current_keys, drop = FALSE]
+    )
+    set.seed(as.integer(random_seeds[iter_idx]) + 910000L)
+    tie_break <- stats::runif(length(feature_names))
+    order_idx <- order(
+      current_patient_units_covered,
+      patient_coverage_score,
+      inclusion_counts[feature_names],
+      tie_break
+    )
+    selected <- feature_names[order_idx[seq_len(n_per_iteration)]]
+    inclusion_counts[selected] <- inclusion_counts[selected] + 1L
+    patient_feature_counts[selected, current_keys] <-
+      patient_feature_counts[selected, current_keys, drop = FALSE] + 1L
+    plans[[iter_idx]] <- selected
+  }
+
+  patients_covered <- rowSums(patient_feature_counts > 0L)
+  patient_feature_coverage <- data.frame(
+    feature = feature_names,
+    gene_inclusion_count = inclusion_counts[feature_names],
+    eligible_patient_condition_units = length(all_patient_keys),
+    patient_condition_units_with_shap = patients_covered[feature_names],
+    percent_patient_condition_coverage = round(
+      100 * patients_covered[feature_names] / length(all_patient_keys),
+      2
+    ),
+    min_patient_feature_test_iterations = apply(patient_feature_counts, 1, min),
+    median_patient_feature_test_iterations = apply(patient_feature_counts, 1, stats::median),
+    max_patient_feature_test_iterations = apply(patient_feature_counts, 1, max),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  summary <- data.frame(
+    total_candidate_features = length(feature_names),
+    feature_fraction_per_iteration = fraction,
+    features_per_iteration = n_per_iteration,
+    min_gene_inclusion_count = min(inclusion_counts),
+    median_gene_inclusion_count = stats::median(inclusion_counts),
+    max_gene_inclusion_count = max(inclusion_counts),
+    unique_features_included = sum(inclusion_counts > 0),
+    percent_features_included = round(100 * mean(inclusion_counts > 0), 2),
+    min_patient_condition_coverage_per_gene = min(patients_covered),
+    median_patient_condition_coverage_per_gene = stats::median(patients_covered),
+    max_patient_condition_coverage_per_gene = max(patients_covered),
+    stringsAsFactors = FALSE
+  )
+
+  list(
+    plans = plans,
+    summary = summary,
+    inclusion_counts = inclusion_counts,
+    patient_feature_coverage = patient_feature_coverage,
+    patient_feature_counts = patient_feature_counts
   )
 }
 

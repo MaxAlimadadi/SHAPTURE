@@ -137,6 +137,11 @@ shapture_config_condition_vs_condition <- list(
   
   # "hard_median_downsample", "weighted_sampling", or "model_weights"
   patient_balance_method = "model_weights",
+
+  # "shared_patients" (default) or "unseen_patients"
+  # unseen_patients uses globally separate 60%/40% patient train/test folds
+  # and automatically falls back per task when patient/unit counts are too low
+  patient_split_strategy = "shared_patients",
   
   # "both", "positive", or "negative"
   shap_expr_cor_direction_filter = "both",
@@ -212,6 +217,10 @@ shapture_config_one_vs_others <- list(
   
   # "hard_median_downsample", "weighted_sampling", or "model_weights"
   patient_balance_method = "model_weights",
+
+  # "shared_patients" (default) or "unseen_patients"
+  # unseen_patients keeps every test patient completely absent from training
+  patient_split_strategy = "shared_patients",
   
   # "both", "positive", or "negative"
   shap_expr_cor_direction_filter = "both",

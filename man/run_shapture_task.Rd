@@ -36,6 +36,7 @@ run_shapture_task(
   analysis_unit_type,
   memory_mode,
   patient_balance_method,
+  patient_split_strategy,
   shap_expr_cor_direction_filter,
   default_prior_scores_weights,
   resolved_config_for_docs
@@ -110,6 +111,10 @@ and adaptive-weight winsorization.}
 \item{memory_mode}{Either \code{"full"} or \code{"safe"}.}
 
 \item{patient_balance_method}{Patient balancing method.}
+
+\item{patient_split_strategy}{Either \code{"shared_patients"} for the existing
+cell/metacell-level split or \code{"unseen_patients"} for globally disjoint
+patient-level train/test folds with automatic task-level fallback.}
 
 \item{shap_expr_cor_direction_filter}{One of \code{"both"}, \code{"positive"},
 \code{"negative"}. Filters retained features by the sign of \code{shap_expr_cor}.}

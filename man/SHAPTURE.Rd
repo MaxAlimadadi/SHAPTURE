@@ -11,6 +11,14 @@ one-vs-others feature discovery from single-cell or metacell data using
 repeated machine-learning fits, SHAP-based interpretation, patient-aware
 balancing, and integrated marker ranking.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/MaxAlimadadi/SHAPTURE}
+  \item Report bugs at \url{https://github.com/MaxAlimadadi/SHAPTURE/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Max Alimadadi \email{alimadadi.max@gmail.com}
 
