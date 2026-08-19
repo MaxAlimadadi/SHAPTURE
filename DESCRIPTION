@@ -1,0 +1,51 @@
+Package: SHAPTURE
+Title: Sample-Aware SHAP-Based Feature Discovery for Single-Cell and Metacell Data
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "Max",
+           family = "Alimadadi",
+           role = c("aut", "cre"),
+           email = "alimadadi.max@gmail.com")
+Author: Max Alimadadi [aut, cre]
+Maintainer: Max Alimadadi <alimadadi.max@gmail.com>
+Description: Provides a sample-aware workflow for subset-specific and
+    one-vs-others feature discovery using repeated machine learning fits,
+    SHAP-based interpretation, patient-aware balancing, optional metacell
+    construction, and integrated marker ranking.
+License: MIT + file LICENSE
+URL: https://github.com/MaxAlimadadi/SHAPTURE
+BugReports: https://github.com/MaxAlimadadi/SHAPTURE/issues
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends: 
+    R (>= 4.3.0)
+Imports:
+    CATALYST,
+    caret,
+    cowplot,
+    doParallel,
+    dplyr,
+    foreach,
+    ggbeeswarm,
+    ggrepel,
+    ggplot2,
+    ggtext,
+    lightgbm,
+    magrittr,
+    methods,
+    pROC,
+    RANN,
+    RColorBrewer,
+    reshape2,
+    rlang,
+    scales,
+    Seurat,
+    SeuratObject,
+    shapviz,
+    SummarizedExperiment,
+    tidyselect,
+    tidyr,
+    xgboost
+Suggests:
+    roxygen2

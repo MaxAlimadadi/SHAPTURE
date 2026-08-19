@@ -1,0 +1,41 @@
+# R and RStudio local files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Rapp.history
+*.Rcheck/
+*.tar.gz
+
+# macOS and editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Local-only project files
+Extra_files_local_only/
+
+# Generated analysis outputs
+analyses/
+one_vs_others_*/
+*/docs/
+*/Integrated_adaptive_scoring_results/
+*/SHAP_only/
+cell.number.*.csv
+cell.used.per.condition.csv
+
+# Heavy or generated artifacts
+*.rds
+*.Rds
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.pptx
+*.xlsx
+
+# Temporary files
+*.tmp
+*.log

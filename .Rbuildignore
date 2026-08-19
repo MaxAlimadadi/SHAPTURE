@@ -1,0 +1,16 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^.*\.DS_Store$
+^.*\.Rhistory$
+^\.gitignore$
+^LICENSE\.md$
+^Extra_files_local_only($|/)
+^previous_versions$
+^package_doc_temp$
+^analyses($|/)
+^pipeline/run_shapture_analysis\.R$
+^one_vs_others_.*$
+^.*\.Rcheck$
+^cell\.number\..*\.csv$
+^cell\.used\.per\.condition\.csv$
+^density_plot\.pdf$
