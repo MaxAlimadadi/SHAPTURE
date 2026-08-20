@@ -23,6 +23,8 @@ Depends:
 Imports:
     CATALYST,
     caret,
+    circlize,
+    ComplexHeatmap,
     cowplot,
     doParallel,
     dplyr,
@@ -31,6 +33,7 @@ Imports:
     ggrepel,
     ggplot2,
     ggtext,
+    grid,
     lightgbm,
     magrittr,
     methods,

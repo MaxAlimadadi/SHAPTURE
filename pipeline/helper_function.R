@@ -13,6 +13,7 @@ source_shapture_modules <- function() {
     "R/shapture_scoring.R",
     "R/shapture_visualization.R",
     "R/shapture_post_analysis_visualization.R",
+    "R/shapture_global_visualization.R",
     "R/shapture_pipeline.R"
   )
   

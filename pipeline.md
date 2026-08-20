@@ -90,6 +90,14 @@ Both `full` and `safe` modes use the same interpretation rule: if one cell/metac
 - `pipeline/run_shapture_visualization.R` is an editable figure recipe, not a black-box rendering function. Each figure has a visible plot-function call and a visible `pdf()` or `png()` call where width, height, and dot-label size can be changed directly.
 - `save_plot_objects`: `FALSE` by default inside the visualization script. Set it to `TRUE` there only when you want the reusable ggplot object list saved to `docs/plots.rds`; leaving it off makes large runs faster and uses less disk.
 
+### Global visualization across split levels
+- `pipeline/run_shapture_global_visualization.R` reads multiple completed result folders without rerunning model fitting or SHAP calculations.
+- `top_feature_show` selects the top-ranked features separately from each folder. The union of those per-folder lists is used in the global figures, so a strong feature specific to one split level is not lost because it is absent elsewhere.
+- The cross-level landscape displays final scores, model-expression pattern symbols, and average-linkage hierarchical clustering of both features and split levels.
+- The direction-aware Jaccard similarity is the number of shared selected features with matching normalized direction divided by the union of selected feature names. Opposite directions do not count as a match.
+- Condition-vs-condition folders must use the same condition labels. One-vs-others patterns are normalized to target versus others before comparison.
+- Width, height, colors, borders, labels, and rasterization behavior remain visible and editable in the global visualization script.
+
 ### Patient balancing choice
 - `patient_balance_method`:
   - `hard_median_downsample`

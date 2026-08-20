@@ -52,7 +52,12 @@ analysis starts from SCE / CATALYST objects.
 
 ```r
 install.packages("BiocManager")
-BiocManager::install(c("SingleCellExperiment", "SummarizedExperiment", "CATALYST"))
+BiocManager::install(c(
+  "SingleCellExperiment",
+  "SummarizedExperiment",
+  "CATALYST",
+  "ComplexHeatmap"
+))
 ```
 
 ## Input data
@@ -216,6 +221,43 @@ pipeline/run_shapture_visualization.R
 Set `result_dir` to a completed result folder, then rerun the script. This
 lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
+
+## Global visualization across split levels
+
+When an analysis produces several split-level result folders, edit:
+
+```r
+pipeline/run_shapture_global_visualization.R
+```
+
+Set `results_root` to the folder containing the completed result folders. The
+script reads each `docs/combined_results.csv` and does not rerun any models.
+`top_feature_show` selects the top-ranked features independently from every
+folder; their union is used in two global figures:
+
+- a hierarchically clustered cross-level final-score landscape
+- a direction-aware Jaccard similarity matrix
+
+The direction-aware Jaccard numerator contains features shared by two folders
+with the same normalized model-expression pattern. Its denominator is the
+union of their selected feature names. Therefore, a feature found in both
+folders but pointing in opposite directions does not count as a directional
+match. Condition-vs-condition folders must use the same condition labels. For
+one-vs-others results, directions are normalized to target versus others before
+folders are compared.
+
+Both figures use average-linkage hierarchical clustering by default. Width,
+height, palette, tile borders, feature-name display, direction symbols, and
+similarity value labels are directly editable in the visualization script.
+The default palette is:
+
+```r
+rev(RColorBrewer::brewer.pal(11, "RdYlBu"))
+```
+
+For very large feature-by-level matrices, the heatmap body is rasterized
+automatically while labels and dendrograms remain vector elements. Set
+`use_raster = FALSE` in the editable script to force an entirely vector PDF.
 
 ## Interpretation notes
 
