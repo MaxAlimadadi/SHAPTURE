@@ -34,6 +34,13 @@ components:
 - patient-level support
 - model reproducibility
 
+The expression signal combines absolute expression log2FC, absolute
+detection-rate difference, and within-condition expression consistency. The
+consistency term is calculated separately in each condition from the original
+cell values using a zero-preserving robust coefficient of variation, converted
+to a 0-1 score, and averaged with equal condition weight. This calculation uses
+the original cells even when metacells are used for model fitting.
+
 The goal is a ranked marker table that is useful for biological follow-up, not
 just a model accuracy report.
 

@@ -27,7 +27,7 @@ compute_combined_shap_ranking(
 \item{average_importance}{Data frame with \code{feature} and SHAP importance.}
 
 \item{stats_results}{Data frame containing SHAP statistics and expression
-summaries.}
+summaries, including \code{within_condition_consistency_raw}.}
 
 \item{w_importance}{Weight for SHAP importance.}
 

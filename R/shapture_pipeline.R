@@ -1996,6 +1996,8 @@ run_shapture_task <- function(
   }
   stats_results$expression_log2FC <- expression_log2FC[stats_results$feature]
   stats_results$expression_log2FC_abs <- abs(stats_results$expression_log2FC)
+  rm(expression_matrix)
+  gc(verbose = FALSE)
   
   single_cell_features <- intersect(nonzero_feature_cols, colnames(dataset_task_singlecell))
   dataset_task_singlecell$condition <- ifelse(dataset_task_singlecell$condition == task_what_0, 0, 1)
@@ -2015,24 +2017,63 @@ run_shapture_task <- function(
   }
   stats_results$det_diff <- det_diff[stats_results$feature]
   stats_results$det_diff_abs <- abs(stats_results$det_diff)
-  
-  variance_condition0 <- apply(expression_matrix[dataset_task$condition == 0, , drop = FALSE], 2, stats::var)
-  variance_condition1 <- apply(expression_matrix[dataset_task$condition == 1, , drop = FALSE], 2, stats::var)
-  var_expr <- colMeans(
-    rbind(variance_condition0, variance_condition1),
-    na.rm = TRUE
+  rm(binary_mat)
+  gc(verbose = FALSE)
+
+  # Keep expression consistency on original cells, independent of modeling unit.
+  within_condition_consistency <- compute_within_condition_expression_consistency(
+    expression_data = dataset_task_singlecell[, single_cell_features, drop = FALSE],
+    condition = dataset_task_singlecell$condition,
+    condition_levels = c(0, 1),
+    upper_quantile = 0.99,
+    min_positive_cells = 20L,
+    pseudocount_fraction = 0.01,
+    pseudocount_fallback = 1e-6
   )
-  missing_var_features <- setdiff(stats_results$feature, names(var_expr))
-  if (length(missing_var_features) > 0) {
+  both_zero_features <- within_condition_consistency$feature[
+    within_condition_consistency$both_conditions_all_zero
+  ]
+  if (length(both_zero_features) > 0) {
+    warning(
+      "Removing ",
+      length(both_zero_features),
+      " feature(s) with homogeneous absence in both task conditions: ",
+      paste(head(both_zero_features, 10), collapse = ", ")
+    )
+    stats_results <- stats_results[
+      !stats_results$feature %in% both_zero_features,
+      ,
+      drop = FALSE
+    ]
+  }
+  if (nrow(stats_results) == 0) {
+    stop("No modeled features remain after removing features absent in both conditions.")
+  }
+
+  consistency_match <- match(
+    stats_results$feature,
+    within_condition_consistency$feature
+  )
+  if (anyNA(consistency_match)) {
+    missing_consistency_features <- stats_results$feature[is.na(consistency_match)]
     stop(
-      "Missing within-condition expression variance values for modeled features in ", temp_split, ": ",
-      paste(head(missing_var_features, 10), collapse = ", ")
+      "Missing within-condition expression consistency values for modeled features in ",
+      temp_split,
+      ": ",
+      paste(head(missing_consistency_features, 10), collapse = ", ")
     )
   }
-  stats_results$expr_variance_condition0 <- variance_condition0[stats_results$feature]
-  stats_results$expr_variance_condition1 <- variance_condition1[stats_results$feature]
-  stats_results$expr_within_condition_variance <- var_expr[stats_results$feature]
-  stats_results$expr_variance <- stats_results$expr_within_condition_variance
+  consistency_columns <- setdiff(
+    colnames(within_condition_consistency),
+    c("feature", "both_conditions_all_zero")
+  )
+  stats_results[, consistency_columns] <- within_condition_consistency[
+    consistency_match,
+    consistency_columns,
+    drop = FALSE
+  ]
+  rm(within_condition_consistency)
+  gc(verbose = FALSE)
   
   if (memory_mode == "full") {
     shp_S_mat <- as.matrix(shp_S)

@@ -356,8 +356,10 @@ These represent a multi-criteria feature ranking strategy rather than pure SHAP 
 - **importance**: average feature importance or SHAP-based importance
 - **patient-level support**: a patient-count-aware component; it uses descriptive `bootstrap_support` in low-patient settings and permutation-adjusted p-value evidence when patient count is large enough
 - **model reproducibility**: reproducibility across repeated subsampling/model fits
-- **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled inverse average within-condition expression variance.
+- **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled within-condition expression consistency.
 - **value_shap**: relationship between feature value and SHAP contribution
+
+Within-condition expression consistency is calculated from the original task-level cells for both single-cell and metacell runs. For each feature and condition, zeros remain unchanged. If at least 20 cells are positive, only positive values above their condition-specific 99th percentile are capped. The condition-specific pseudocount is `max(0.01 * median(positive values), 1e-6)`, and robust relative variability is calculated as `SD / (abs(mean) + pseudocount)`. SHAPTURE converts this to `1 / (1 + CV)` and averages the two condition scores equally. A condition in which every cell is zero receives a consistency score of 1 for homogeneous absence; a feature absent in both conditions is removed. `within_condition_consistency_raw` stores the bounded score, while `within_condition_consistency_scaled` is the score-scaling result used in the Expression signal.
 
 ### Model Expression Pattern
 `Model_expression_pattern` is saved in `combined_results.csv` and used as an interpretation label in plots.

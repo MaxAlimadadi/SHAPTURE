@@ -315,7 +315,7 @@ add_direction_info <- function(
 #'
 #' @param average_importance Data frame with `feature` and SHAP importance.
 #' @param stats_results Data frame containing SHAP statistics and expression
-#'   summaries.
+#'   summaries, including `within_condition_consistency_raw`.
 #' @param w_importance Weight for SHAP importance.
 #' @param w_patient_level_support Weight for patient-level support.
 #' @param w_model_reproducibility Weight for model reproducibility.
@@ -444,14 +444,20 @@ compute_combined_shap_ranking <- function(
   combined$expression_log2FC_abs <- abs(combined$expression_log2FC)
   combined$expression_log2FC_abs_scaled <- safe_rescale(combined$expression_log2FC_abs)
   combined$det_diff_scaled <- safe_rescale(abs(combined$det_diff))
-  combined$within_condition_variance_inv <- 1 / (combined$expr_variance + 1e-6)
-  combined$within_condition_variance_scaled <- safe_rescale(combined$within_condition_variance_inv)
-  combined$var_inv <- combined$within_condition_variance_inv
-  combined$var_scaled <- combined$within_condition_variance_scaled
+  if (!"within_condition_consistency_raw" %in% colnames(combined)) {
+    stop("stats_results must contain within_condition_consistency_raw.")
+  }
+  if (any(!is.finite(combined$within_condition_consistency_raw)) ||
+      any(combined$within_condition_consistency_raw < 0 | combined$within_condition_consistency_raw > 1)) {
+    stop("within_condition_consistency_raw must contain finite values from 0 to 1.")
+  }
+  combined$within_condition_consistency_scaled <- safe_rescale(
+    combined$within_condition_consistency_raw
+  )
   combined$expression_score <- (
     combined$expression_log2FC_abs_scaled +
       combined$det_diff_scaled +
-      combined$within_condition_variance_scaled
+      combined$within_condition_consistency_scaled
   ) / 3
   
   combined$shap_expr_cor_abs_scaled <- safe_rescale(abs(combined$shap_expr_cor))

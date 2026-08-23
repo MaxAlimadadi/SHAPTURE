@@ -1586,3 +1586,207 @@ compute_dynamic_pseudocount <- function(
   
   max(fraction * stats::median(x, na.rm = TRUE), fallback)
 }
+
+
+#' Compute within-condition expression consistency
+#'
+#' Calculates a bounded, condition-balanced expression-consistency score for
+#' each feature. Zeros are preserved, upper-tail winsorization is estimated
+#' from positive values only, and each condition receives equal weight.
+#'
+#' @param expression_data Numeric matrix or data frame with rows as cells and
+#'   columns as features.
+#' @param condition Binary condition vector with one value per row.
+#' @param condition_levels Optional length-two vector defining condition 0 and
+#'   condition 1. If `NULL`, the two observed values are used in order of first
+#'   appearance.
+#' @param upper_quantile Positive-value quantile used for upper-tail
+#'   winsorization.
+#' @param min_positive_cells Minimum number of positive cells required before
+#'   winsorization is applied within a condition.
+#' @param pseudocount_fraction Fraction of the condition-specific median
+#'   positive value used as the pseudocount.
+#' @param pseudocount_fallback Minimum pseudocount.
+#'
+#' @return A data frame with condition-specific diagnostics and the equally
+#'   weighted `within_condition_consistency_raw` score for every feature.
+#' @keywords internal
+compute_within_condition_expression_consistency <- function(
+    expression_data,
+    condition,
+    condition_levels = NULL,
+    upper_quantile = 0.99,
+    min_positive_cells = 20L,
+    pseudocount_fraction = 0.01,
+    pseudocount_fallback = 1e-6
+) {
+  if (!is.data.frame(expression_data) && !is.matrix(expression_data)) {
+    stop("expression_data must be a numeric data frame or matrix.")
+  }
+  if (nrow(expression_data) != length(condition)) {
+    stop("condition must contain one value for each row of expression_data.")
+  }
+  if (nrow(expression_data) < 2 || ncol(expression_data) < 1) {
+    stop("expression_data must contain at least two cells and one feature.")
+  }
+  if (is.null(colnames(expression_data)) || any(!nzchar(colnames(expression_data)))) {
+    stop("expression_data must have non-empty feature names.")
+  }
+  if (anyDuplicated(colnames(expression_data))) {
+    stop("expression_data feature names must be unique.")
+  }
+  numeric_features <- if (is.matrix(expression_data)) {
+    rep(is.numeric(expression_data), ncol(expression_data))
+  } else {
+    vapply(expression_data, is.numeric, logical(1))
+  }
+  if (any(!numeric_features)) {
+    stop(
+      "expression_data contains non-numeric feature(s): ",
+      paste(head(colnames(expression_data)[!numeric_features], 10), collapse = ", ")
+    )
+  }
+  if (anyNA(condition)) {
+    stop("condition cannot contain missing values.")
+  }
+  if (!is.numeric(upper_quantile) || length(upper_quantile) != 1 ||
+      !is.finite(upper_quantile) || upper_quantile <= 0 || upper_quantile >= 1) {
+    stop("upper_quantile must be one number strictly between 0 and 1.")
+  }
+  if (!is.numeric(min_positive_cells) || length(min_positive_cells) != 1 ||
+      !is.finite(min_positive_cells) || min_positive_cells < 1 ||
+      min_positive_cells != as.integer(min_positive_cells)) {
+    stop("min_positive_cells must be a positive integer.")
+  }
+  if (!is.numeric(pseudocount_fraction) || length(pseudocount_fraction) != 1 ||
+      !is.finite(pseudocount_fraction) || pseudocount_fraction <= 0) {
+    stop("pseudocount_fraction must be a positive finite number.")
+  }
+  if (!is.numeric(pseudocount_fallback) || length(pseudocount_fallback) != 1 ||
+      !is.finite(pseudocount_fallback) || pseudocount_fallback <= 0) {
+    stop("pseudocount_fallback must be a positive finite number.")
+  }
+
+  observed_levels <- unique(condition)
+  if (is.null(condition_levels)) {
+    condition_levels <- observed_levels
+  }
+  if (length(condition_levels) != 2 || anyNA(condition_levels)) {
+    stop("condition_levels must contain exactly two non-missing values.")
+  }
+  if (anyDuplicated(condition_levels)) {
+    stop("condition_levels must contain two distinct values.")
+  }
+  if (!all(observed_levels %in% condition_levels) ||
+      !all(condition_levels %in% observed_levels)) {
+    stop("condition and condition_levels must describe exactly the same two conditions.")
+  }
+
+  condition_indices <- lapply(condition_levels, function(level) which(condition == level))
+  if (any(lengths(condition_indices) < 2)) {
+    stop("Each condition must contain at least two cells for consistency calculation.")
+  }
+
+  summarize_condition <- function(x, row_index) {
+    values <- as.numeric(x[row_index])
+    if (any(!is.finite(values))) {
+      stop("Expression values must be finite.")
+    }
+    if (any(values < 0)) {
+      stop(
+        "Within-condition expression consistency requires non-negative values; ",
+        "use unscaled normalized expression rather than centered/scaled values."
+      )
+    }
+
+    positive_values <- values[values > 0]
+    n_positive <- length(positive_values)
+    if (n_positive == 0) {
+      return(c(
+        n_positive = 0,
+        all_zero = 1,
+        winsorization_used = 0,
+        upper_cap = NA_real_,
+        pseudocount = NA_real_,
+        cv = 0,
+        consistency = 1
+      ))
+    }
+
+    winsorization_used <- n_positive >= min_positive_cells
+    upper_cap <- NA_real_
+    winsorized_values <- values
+    if (winsorization_used) {
+      upper_cap <- as.numeric(stats::quantile(
+        positive_values,
+        probs = upper_quantile,
+        names = FALSE,
+        na.rm = FALSE,
+        type = 7
+      ))
+      positive_index <- winsorized_values > 0
+      winsorized_values[positive_index] <- pmin(
+        winsorized_values[positive_index],
+        upper_cap
+      )
+    }
+
+    pseudocount <- max(
+      pseudocount_fraction * stats::median(positive_values),
+      pseudocount_fallback
+    )
+    condition_mean <- mean(winsorized_values)
+    condition_sd <- stats::sd(winsorized_values)
+    condition_cv <- condition_sd / (abs(condition_mean) + pseudocount)
+    condition_consistency <- 1 / (1 + condition_cv)
+
+    c(
+      n_positive = n_positive,
+      all_zero = 0,
+      winsorization_used = as.numeric(winsorization_used),
+      upper_cap = upper_cap,
+      pseudocount = pseudocount,
+      cv = condition_cv,
+      consistency = condition_consistency
+    )
+  }
+
+  feature_summaries <- lapply(seq_len(ncol(expression_data)), function(feature_index) {
+    feature_values <- if (is.matrix(expression_data)) {
+      expression_data[, feature_index]
+    } else {
+      expression_data[[feature_index]]
+    }
+    condition0 <- summarize_condition(feature_values, condition_indices[[1]])
+    condition1 <- summarize_condition(feature_values, condition_indices[[2]])
+
+    data.frame(
+      feature = colnames(expression_data)[feature_index],
+      within_condition_positive_n_condition0 = as.integer(condition0["n_positive"]),
+      within_condition_positive_n_condition1 = as.integer(condition1["n_positive"]),
+      within_condition_all_zero_condition0 = as.logical(condition0["all_zero"]),
+      within_condition_all_zero_condition1 = as.logical(condition1["all_zero"]),
+      within_condition_winsorization_used_condition0 = as.logical(condition0["winsorization_used"]),
+      within_condition_winsorization_used_condition1 = as.logical(condition1["winsorization_used"]),
+      within_condition_upper_cap_condition0 = unname(condition0["upper_cap"]),
+      within_condition_upper_cap_condition1 = unname(condition1["upper_cap"]),
+      within_condition_pseudocount_condition0 = unname(condition0["pseudocount"]),
+      within_condition_pseudocount_condition1 = unname(condition1["pseudocount"]),
+      within_condition_cv_condition0 = unname(condition0["cv"]),
+      within_condition_cv_condition1 = unname(condition1["cv"]),
+      within_condition_consistency_condition0 = unname(condition0["consistency"]),
+      within_condition_consistency_condition1 = unname(condition1["consistency"]),
+      within_condition_consistency_raw = mean(c(
+        condition0["consistency"],
+        condition1["consistency"]
+      )),
+      both_conditions_all_zero = as.logical(
+        condition0["all_zero"] == 1 && condition1["all_zero"] == 1
+      ),
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  })
+
+  do.call(rbind, feature_summaries)
+}
