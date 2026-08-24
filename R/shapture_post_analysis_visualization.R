@@ -451,6 +451,25 @@ load_shapture_visualization_inputs <- function(
   task_what_0 <- context$task_what_0
   task_what_1 <- context$task_what_1
   group_color_map <- build_group_color_map(task_what_0, task_what_1, group_colors)
+  cross_patient_support_available <- cross_patient_support_is_available(combined_results)
+  if (!is.null(context$cross_patient_support_available) &&
+      !identical(isTRUE(context$cross_patient_support_available), cross_patient_support_available)) {
+    warning(
+      "Saved Cross-patient support context disagrees with combined_results; ",
+      "the visualization uses combined_results as the source of truth.",
+      call. = FALSE
+    )
+  }
+  cross_patient_support_unavailable_reason <- if (cross_patient_support_available) {
+    NA_character_
+  } else {
+    context$cross_patient_support_unavailable_reason %||% "insufficient patients"
+  }
+  cross_patient_support_note <- if (cross_patient_support_available) {
+    context$cross_patient_support_note %||% "Cross-patient support is available."
+  } else {
+    "Cross-patient support unavailable: insufficient patients. Final scores use four renormalized components."
+  }
   
   list(
     result_dir = result_dir,
@@ -467,9 +486,9 @@ load_shapture_visualization_inputs <- function(
     group_colors = group_colors,
     continuous_colors = continuous_colors,
     group_color_map = group_color_map,
-    cross_patient_support_available = isTRUE(context$cross_patient_support_available),
-    cross_patient_support_unavailable_reason = context$cross_patient_support_unavailable_reason,
-    cross_patient_support_note = context$cross_patient_support_note,
+    cross_patient_support_available = cross_patient_support_available,
+    cross_patient_support_unavailable_reason = cross_patient_support_unavailable_reason,
+    cross_patient_support_note = cross_patient_support_note,
     min_patients = context$min_patients,
     feature_min_log2FC = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff

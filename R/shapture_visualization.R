@@ -5,10 +5,20 @@
 #' @return Logical scalar.
 #' @keywords internal
 cross_patient_support_is_available <- function(df) {
-  "cross_patient_support" %in% colnames(df) &&
-    "cross_patient_support_available" %in% colnames(df) &&
-    isTRUE(unique(df$cross_patient_support_available)[1]) &&
-    any(is.finite(df$cross_patient_support))
+  if (!all(c(
+    "cross_patient_support",
+    "cross_patient_support_available"
+  ) %in% colnames(df))) {
+    return(FALSE)
+  }
+
+  availability <- unique(df$cross_patient_support_available)
+  length(availability) == 1L &&
+    !is.na(availability) &&
+    isTRUE(availability) &&
+    length(df$cross_patient_support) == nrow(df) &&
+    all(is.finite(df$cross_patient_support)) &&
+    all(df$cross_patient_support >= 0 & df$cross_patient_support <= 1)
 }
 
 
@@ -24,12 +34,19 @@ add_cross_patient_support_note <- function(p, support_available) {
     p <- p +
       ggplot2::labs(
         caption = paste0(
-          "Cross-patient support unavailable: insufficient patients. ",
+          "Cross-patient support unavailable: insufficient patients.\n",
           "Final scores use four renormalized components."
         )
       ) +
       ggplot2::theme(
-        plot.caption = ggplot2::element_text(size = 7, face = "italic")
+        plot.caption.position = "plot",
+        plot.caption = ggplot2::element_text(
+          size = 7,
+          face = "italic",
+          hjust = 0,
+          lineheight = 1.05,
+          margin = ggplot2::margin(t = 5)
+        )
       )
   }
   p
