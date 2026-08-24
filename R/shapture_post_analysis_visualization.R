@@ -39,7 +39,7 @@ save_shapture_visualization_inputs <- function(
   dir.create(docs_dir, recursive = TRUE, showWarnings = FALSE)
   
   inputs <- list(
-    version = "1.0.0",
+    version = "1.1.0",
     generated_at = as.character(Sys.time()),
     context = context,
     group_colors = unname(group_colors),
@@ -467,7 +467,9 @@ load_shapture_visualization_inputs <- function(
     group_colors = group_colors,
     continuous_colors = continuous_colors,
     group_color_map = group_color_map,
-    inference_reliable = isTRUE(context$inference_reliable),
+    cross_patient_support_available = isTRUE(context$cross_patient_support_available),
+    cross_patient_support_unavailable_reason = context$cross_patient_support_unavailable_reason,
+    cross_patient_support_note = context$cross_patient_support_note,
     min_patients = context$min_patients,
     feature_min_log2FC = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff

@@ -31,7 +31,7 @@ components:
 - SHAP importance
 - expression signal
 - value-SHAP relationship
-- patient-level support
+- Cross-patient support
 - model reproducibility
 
 The expression signal combines absolute expression log2FC, absolute
@@ -40,6 +40,14 @@ consistency term is calculated separately in each condition from the original
 cell values using a zero-preserving robust coefficient of variation, converted
 to a 0-1 score, and averaged with equal condition weight. This calculation uses
 the original cells even when metacells are used for model fitting.
+
+Cross-patient support asks whether the three main evidence streams persist when
+patients are resampled as complete blocks. SHAPTURE runs 1,000 patient-block
+bootstraps, recalculates SHAP importance, Expression signal, and the Value-SHAP
+relationship for the fixed retained feature set, and combines their 0-1
+retention measures with equal weight. If there are too few patients, this
+component is left unavailable and the remaining four score weights are
+renormalized.
 
 The goal is a ranked marker table that is useful for biological follow-up, not
 just a model accuracy report.
@@ -273,9 +281,10 @@ important to the model, directionally connected to expression, supported across
 patients when possible, and reproducible across repeated resampling. It does
 not replace experimental validation or fully sample-level inference.
 
-For very small patient counts, permutation p-values have a hard resolution
-limit. SHAPTURE records this in the output files and treats those runs more
-cautiously.
+Cross-patient support requires at least two patients in each condition for a
+condition-vs-condition task, or at least two patients in total for a
+one-vs-others task. This is a resampling-based support measure, not a p-value or
+independent validation.
 
 ## Development status
 

@@ -1,4 +1,538 @@
-#' Compute patient-level SHAP summary statistics
+#' Compute the patient-balanced SHAP effect size
+#'
+#' @param shap_matrix Unit-averaged SHAP matrix.
+#' @param metadata Metadata aligned to `shap_matrix`.
+#' @param sample_col Sample identifier column.
+#' @param condition_col Binary condition column.
+#'
+#' @return Data frame with one row per feature and a patient-balanced signed
+#'   SHAP difference (`condition_1 - condition_0`).
+#' @keywords internal
+compute_patient_balanced_shap_effect <- function(
+    shap_matrix,
+    metadata,
+    sample_col = "sample_id",
+    condition_col = "condition"
+) {
+  shap_matrix <- as.matrix(shap_matrix)
+  metadata <- as.data.frame(metadata, check.names = FALSE)
+  if (nrow(shap_matrix) != nrow(metadata)) {
+    stop("shap_matrix and metadata must have the same number of rows.")
+  }
+  if (!all(c(sample_col, condition_col) %in% colnames(metadata))) {
+    stop("metadata must contain sample and condition columns.")
+  }
+
+  condition_values <- as.character(metadata[[condition_col]])
+  if (!all(stats::na.omit(unique(condition_values)) %in% c("0", "1"))) {
+    stop("Cross-patient calculations require condition values coded as 0 and 1.")
+  }
+  valid_rows <- !is.na(metadata[[sample_col]]) & !is.na(condition_values)
+  patient_keys <- paste(
+    as.character(metadata[[sample_col]][valid_rows]),
+    condition_values[valid_rows],
+    sep = "___"
+  )
+  patient_means <- rowsum(
+    shap_matrix[valid_rows, , drop = FALSE],
+    group = patient_keys,
+    reorder = FALSE,
+    na.rm = TRUE
+  )
+  observed_counts <- rowsum(
+    is.finite(shap_matrix[valid_rows, , drop = FALSE]) * 1,
+    group = patient_keys,
+    reorder = FALSE
+  )
+  patient_means[observed_counts > 0] <-
+    patient_means[observed_counts > 0] / observed_counts[observed_counts > 0]
+  patient_means[observed_counts == 0] <- NA_real_
+  patient_conditions <- sub("^.*___", "", rownames(patient_means))
+
+  effect_size <- colMeans(
+    patient_means[patient_conditions == "1", , drop = FALSE],
+    na.rm = TRUE
+  ) - colMeans(
+    patient_means[patient_conditions == "0", , drop = FALSE],
+    na.rm = TRUE
+  )
+
+  data.frame(
+    feature = colnames(shap_matrix),
+    effect_size = effect_size,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+}
+
+
+#' Calculate conservative bootstrap retention
+#'
+#' @param values Numeric bootstrap values.
+#' @param zero_tolerance Values with a median at or below this threshold have no
+#'   measurable signal and receive support zero.
+#'
+#' @return Named numeric vector containing support, median, fifth percentile,
+#'   and number of valid bootstrap values.
+#' @keywords internal
+compute_bootstrap_retention <- function(values, zero_tolerance = 1e-8) {
+  values <- values[is.finite(values)]
+  if (length(values) == 0) {
+    return(c(support = 0, median = NA_real_, q05 = NA_real_, n_valid = 0))
+  }
+  bootstrap_median <- stats::median(values)
+  bootstrap_q05 <- as.numeric(stats::quantile(
+    values,
+    probs = 0.05,
+    names = FALSE,
+    na.rm = TRUE
+  ))
+  support <- if (!is.finite(bootstrap_median) || bootstrap_median <= zero_tolerance) {
+    0
+  } else {
+    min(1, max(0, bootstrap_q05 / bootstrap_median))
+  }
+  c(
+    support = support,
+    median = bootstrap_median,
+    q05 = bootstrap_q05,
+    n_valid = length(values)
+  )
+}
+
+
+#' Compute Cross-patient support by patient-block bootstrap
+#'
+#' Patient blocks are resampled with replacement. SHAP importance, Expression
+#' signal, and the Value-SHAP relationship are recalculated for the fixed final
+#' feature set. The first two use fifth-percentile-to-median retention; the
+#' Value-SHAP relationship uses direction-and-threshold retention frequency.
+#'
+#' @param shap_matrix Unit-averaged held-out SHAP matrix.
+#' @param shap_feature_values Unit-averaged model-input feature matrix.
+#' @param shap_metadata Metadata aligned to the SHAP matrices.
+#' @param model_expression_data Model-unit data used for full-data log2FC.
+#' @param single_cell_expression_data Original-cell data used for detection and
+#'   within-condition consistency.
+#' @param full_stats Full-data feature statistics.
+#' @param average_importance Full-data mean absolute SHAP importance table.
+#' @param feature_names Fixed retained feature list.
+#' @param comparison_mode Either `"condition_vs_condition"` or
+#'   `"one_vs_others"`.
+#' @param feature_min_log2FC Minimum bootstrap log2FC magnitude.
+#' @param shap_expr_cor_cutoff Minimum bootstrap Value-SHAP correlation.
+#' @param score_scaling_method Full-analysis component scaling method.
+#' @param score_scaling_probs Full-analysis winsorization probabilities.
+#' @param n_bootstraps Number of patient-block bootstrap replicates.
+#' @param seed Random seed.
+#'
+#' @return List containing per-feature support, diagnostics, and task metadata.
+#' @keywords internal
+compute_cross_patient_support <- function(
+    shap_matrix,
+    shap_feature_values,
+    shap_metadata,
+    model_expression_data,
+    single_cell_expression_data,
+    full_stats,
+    average_importance,
+    feature_names,
+    comparison_mode = c("condition_vs_condition", "one_vs_others"),
+    feature_min_log2FC = 0.25,
+    shap_expr_cor_cutoff = 0.25,
+    score_scaling_method = c("winsorized", "minmax"),
+    score_scaling_probs = c(0.05, 0.95),
+    n_bootstraps = 1000L,
+    seed = 42L
+) {
+  comparison_mode <- match.arg(comparison_mode)
+  score_scaling_method <- match.arg(score_scaling_method)
+  n_bootstraps <- as.integer(n_bootstraps)
+  if (!is.finite(n_bootstraps) || n_bootstraps < 1L) {
+    stop("n_bootstraps must be a positive integer.")
+  }
+
+  feature_names <- unique(as.character(feature_names))
+  if (length(feature_names) == 0) {
+    stop("feature_names cannot be empty for Cross-patient support.")
+  }
+  shap_matrix <- as.matrix(shap_matrix[, feature_names, drop = FALSE])
+  shap_feature_values <- as.matrix(shap_feature_values[, feature_names, drop = FALSE])
+  shap_metadata <- as.data.frame(shap_metadata, check.names = FALSE)
+  model_expression_data <- as.data.frame(model_expression_data, check.names = FALSE)
+  single_cell_expression_data <- as.data.frame(single_cell_expression_data, check.names = FALSE)
+
+  if (nrow(shap_matrix) != nrow(shap_feature_values) ||
+      nrow(shap_matrix) != nrow(shap_metadata)) {
+    stop("SHAP values, feature values, and SHAP metadata must align by row.")
+  }
+  required_metadata <- c("sample_id", "condition")
+  data_sources <- list(
+    shap = shap_metadata,
+    model = model_expression_data,
+    single_cell = single_cell_expression_data
+  )
+  for (source_name in names(data_sources)) {
+    source_data <- data_sources[[source_name]]
+    required_columns <- if (identical(source_name, "shap")) {
+      required_metadata
+    } else {
+      c(required_metadata, feature_names)
+    }
+    missing_columns <- setdiff(required_columns, colnames(source_data))
+    if (length(missing_columns) > 0) {
+      stop(
+        "Missing Cross-patient support columns in ", source_name, " data: ",
+        paste(head(missing_columns, 10), collapse = ", ")
+      )
+    }
+    source_conditions <- as.character(source_data$condition)
+    if (!all(stats::na.omit(unique(source_conditions)) %in% c("0", "1"))) {
+      stop(source_name, " data must use condition values 0 and 1.")
+    }
+  }
+
+  full_match <- match(feature_names, full_stats$feature)
+  importance_match <- match(feature_names, average_importance$feature)
+  if (anyNA(full_match) || anyNA(importance_match)) {
+    stop("Cross-patient support inputs do not cover every retained feature.")
+  }
+  full_stats <- full_stats[full_match, , drop = FALSE]
+  full_importance <- average_importance$`average|SHAP value|`[importance_match]
+
+  make_block_table <- function(data) {
+    unique(data.frame(
+      sample_id = as.character(data$sample_id),
+      condition = as.character(data$condition),
+      stringsAsFactors = FALSE
+    ))
+  }
+  source_blocks <- lapply(data_sources, make_block_table)
+  common_patient_ids <- Reduce(
+    intersect,
+    lapply(source_blocks, function(x) unique(x$sample_id[!is.na(x$sample_id)]))
+  )
+  source_blocks <- lapply(source_blocks, function(x) {
+    x[x$sample_id %in% common_patient_ids & x$condition %in% c("0", "1"), , drop = FALSE]
+  })
+
+  if (comparison_mode == "condition_vs_condition") {
+    common_block_keys <- Reduce(
+      intersect,
+      lapply(source_blocks, function(x) paste(x$sample_id, x$condition, sep = "___"))
+    )
+    common_blocks <- source_blocks$shap[
+      paste(source_blocks$shap$sample_id, source_blocks$shap$condition, sep = "___") %in% common_block_keys,
+      ,
+      drop = FALSE
+    ]
+    patient_ids_by_condition <- lapply(c("0", "1"), function(level) {
+      unique(common_blocks$sample_id[common_blocks$condition == level])
+    })
+    patient_counts <- lengths(patient_ids_by_condition)
+    support_available <- all(patient_counts >= 2L)
+    unavailable_reason <- if (support_available) NA_character_ else "insufficient patients"
+  } else {
+    patient_ids_by_condition <- NULL
+    patient_counts <- vapply(c("0", "1"), function(level) {
+      length(unique(source_blocks$shap$sample_id[source_blocks$shap$condition == level]))
+    }, integer(1))
+    support_available <- length(common_patient_ids) >= 2L &&
+      all(vapply(data_sources, function(x) all(c("0", "1") %in% as.character(x$condition)), logical(1)))
+    unavailable_reason <- if (support_available) NA_character_ else "insufficient patients"
+  }
+
+  unavailable_result <- function(reason) {
+    support_table <- data.frame(
+      feature = feature_names,
+      cross_patient_support = NA_real_,
+      cross_patient_support_available = FALSE,
+      cross_patient_support_unavailable_reason = reason,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    diagnostics <- data.frame(
+      feature = feature_names,
+      cross_patient_support = NA_real_,
+      shap_importance_support = NA_real_,
+      expression_signal_support = NA_real_,
+      value_shap_relationship_support = NA_real_,
+      n_bootstraps_requested = n_bootstraps,
+      n_bootstraps_valid_task = 0L,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    list(
+      support = support_table,
+      diagnostics = diagnostics,
+      available = FALSE,
+      reason = reason,
+      n_patients_condition0 = patient_counts[1],
+      n_patients_condition1 = patient_counts[2],
+      n_patients_total = length(common_patient_ids),
+      n_bootstraps_requested = n_bootstraps,
+      n_bootstraps_valid_task = 0L
+    )
+  }
+
+  if (!support_available) {
+    warning(
+      "Cross-patient support unavailable: insufficient patients. ",
+      "Final scores use four renormalized components.",
+      call. = FALSE
+    )
+    return(unavailable_result(unavailable_reason))
+  }
+
+  scalers <- list(
+    importance = fit_shapture_score_scaler(
+      full_importance,
+      method = score_scaling_method,
+      probs = score_scaling_probs
+    ),
+    log2fc = fit_shapture_score_scaler(
+      abs(full_stats$expression_log2FC),
+      method = score_scaling_method,
+      probs = score_scaling_probs
+    ),
+    detection = fit_shapture_score_scaler(
+      abs(full_stats$det_diff),
+      method = score_scaling_method,
+      probs = score_scaling_probs
+    ),
+    consistency = fit_shapture_score_scaler(
+      full_stats$within_condition_consistency_raw,
+      method = score_scaling_method,
+      probs = score_scaling_probs
+    )
+  )
+
+  n_features <- length(feature_names)
+  importance_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
+  expression_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
+  value_shap_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
+  colnames(importance_bootstrap) <- feature_names
+  colnames(expression_bootstrap) <- feature_names
+  colnames(value_shap_bootstrap) <- feature_names
+
+  build_source_indices <- function(source_data, sampled_blocks) {
+    unlist(lapply(seq_len(nrow(sampled_blocks)), function(i) {
+      which(
+        as.character(source_data$sample_id) == sampled_blocks$sample_id[i] &
+          if (comparison_mode == "condition_vs_condition") {
+            as.character(source_data$condition) == sampled_blocks$condition[i]
+          } else {
+            TRUE
+          }
+      )
+    }), use.names = FALSE)
+  }
+
+  draw_valid_bootstrap <- function(max_attempts = 100L) {
+    for (attempt in seq_len(max_attempts)) {
+      if (comparison_mode == "condition_vs_condition") {
+        sampled_blocks <- do.call(rbind, lapply(seq_along(patient_ids_by_condition), function(i) {
+          level <- as.character(i - 1L)
+          ids <- patient_ids_by_condition[[i]]
+          data.frame(
+            sample_id = sample(ids, size = length(ids), replace = TRUE),
+            condition = level,
+            stringsAsFactors = FALSE
+          )
+        }))
+      } else {
+        sampled_blocks <- data.frame(
+          sample_id = sample(
+            common_patient_ids,
+            size = length(common_patient_ids),
+            replace = TRUE
+          ),
+          condition = NA_character_,
+          stringsAsFactors = FALSE
+        )
+      }
+
+      source_indices <- lapply(data_sources, build_source_indices, sampled_blocks = sampled_blocks)
+      source_valid <- vapply(seq_along(data_sources), function(i) {
+        idx <- source_indices[[i]]
+        length(idx) > 0 && all(c("0", "1") %in% as.character(data_sources[[i]]$condition[idx]))
+      }, logical(1))
+      if (all(source_valid)) {
+        return(source_indices)
+      }
+    }
+    NULL
+  }
+
+  set.seed(seed)
+  task_bootstrap_valid <- logical(n_bootstraps)
+  for (bootstrap_index in seq_len(n_bootstraps)) {
+    source_indices <- draw_valid_bootstrap()
+    if (is.null(source_indices)) {
+      next
+    }
+    shap_index <- source_indices$shap
+    model_index <- source_indices$model
+    single_cell_index <- source_indices$single_cell
+
+    bootstrap_importance <- colMeans(abs(shap_matrix[shap_index, , drop = FALSE]), na.rm = TRUE)
+    importance_bootstrap[bootstrap_index, ] <- apply_shapture_score_scaler(
+      bootstrap_importance,
+      scalers$importance
+    )
+
+    value_shap_bootstrap[bootstrap_index, ] <- vapply(seq_len(n_features), function(j) {
+      x <- shap_feature_values[shap_index, j]
+      s <- shap_matrix[shap_index, j]
+      valid <- is.finite(x) & is.finite(s)
+      if (sum(valid) < 3L || length(unique(x[valid])) < 2L || length(unique(s[valid])) < 2L) {
+        return(NA_real_)
+      }
+      suppressWarnings(stats::cor(x[valid], s[valid], method = "spearman"))
+    }, numeric(1))
+
+    model_matrix <- as.matrix(model_expression_data[model_index, feature_names, drop = FALSE])
+    model_condition <- as.character(model_expression_data$condition[model_index])
+    mean_0 <- colMeans(model_matrix[model_condition == "0", , drop = FALSE], na.rm = TRUE)
+    mean_1 <- colMeans(model_matrix[model_condition == "1", , drop = FALSE], na.rm = TRUE)
+    pseudocount <- compute_dynamic_pseudocount(model_matrix, fraction = 0.01, fallback = 1e-6)
+    bootstrap_log2fc <- log2((mean_1 + pseudocount) / (mean_0 + pseudocount))
+    log2fc_retained <- ifelse(
+      is.finite(bootstrap_log2fc) &
+        abs(bootstrap_log2fc) >= feature_min_log2FC &
+        sign(bootstrap_log2fc) == sign(full_stats$expression_log2FC),
+      abs(bootstrap_log2fc),
+      0
+    )
+    log2fc_score <- apply_shapture_score_scaler(log2fc_retained, scalers$log2fc)
+    # A direction reversal or sub-threshold effect must remain unsupported even
+    # when the full-data reference component is constant and scales to neutral.
+    log2fc_score[log2fc_retained == 0] <- 0
+
+    single_cell_matrix <- as.matrix(
+      single_cell_expression_data[single_cell_index, feature_names, drop = FALSE]
+    )
+    single_cell_condition <- as.character(single_cell_expression_data$condition[single_cell_index])
+    detection_0 <- colMeans(single_cell_matrix[single_cell_condition == "0", , drop = FALSE] > 0)
+    detection_1 <- colMeans(single_cell_matrix[single_cell_condition == "1", , drop = FALSE] > 0)
+    bootstrap_detection_diff <- detection_1 - detection_0
+    full_detection_sign <- sign(full_stats$det_diff)
+    detection_retained <- ifelse(
+      full_detection_sign != 0 &
+        is.finite(bootstrap_detection_diff) &
+        sign(bootstrap_detection_diff) == full_detection_sign,
+      abs(bootstrap_detection_diff),
+      0
+    )
+    detection_score <- apply_shapture_score_scaler(detection_retained, scalers$detection)
+    detection_score[detection_retained == 0] <- 0
+
+    consistency_result <- tryCatch(
+      compute_within_condition_expression_consistency(
+        expression_data = single_cell_matrix,
+        condition = single_cell_condition,
+        condition_levels = c("0", "1"),
+        upper_quantile = 0.99,
+        min_positive_cells = 20L,
+        pseudocount_fraction = 0.01,
+        pseudocount_fallback = 1e-6
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(consistency_result)) {
+      importance_bootstrap[bootstrap_index, ] <- NA_real_
+      value_shap_bootstrap[bootstrap_index, ] <- NA_real_
+      next
+    }
+    consistency_match <- match(feature_names, consistency_result$feature)
+    consistency_score <- apply_shapture_score_scaler(
+      consistency_result$within_condition_consistency_raw[consistency_match],
+      scalers$consistency
+    )
+    bootstrap_expression <- (log2fc_score + detection_score + consistency_score) / 3
+    bootstrap_expression[consistency_result$both_conditions_all_zero[consistency_match]] <- 0
+    expression_bootstrap[bootstrap_index, ] <- bootstrap_expression
+    task_bootstrap_valid[bootstrap_index] <- TRUE
+  }
+
+  if (!any(task_bootstrap_valid)) {
+    warning(
+      "Cross-patient support unavailable: no valid patient-block bootstraps. ",
+      "Final scores use four renormalized components.",
+      call. = FALSE
+    )
+    return(unavailable_result("no valid patient-block bootstraps"))
+  }
+
+  importance_retention <- t(vapply(seq_len(n_features), function(j) {
+    compute_bootstrap_retention(importance_bootstrap[, j])
+  }, numeric(4)))
+  expression_retention <- t(vapply(seq_len(n_features), function(j) {
+    compute_bootstrap_retention(expression_bootstrap[, j])
+  }, numeric(4)))
+  colnames(importance_retention) <- c("support", "median", "q05", "n_valid")
+  colnames(expression_retention) <- c("support", "median", "q05", "n_valid")
+
+  value_shap_support <- vapply(seq_len(n_features), function(j) {
+    bootstrap_correlations <- value_shap_bootstrap[, j]
+    valid <- is.finite(bootstrap_correlations)
+    if (!any(valid)) {
+      return(0)
+    }
+    mean(
+      sign(bootstrap_correlations[valid]) == sign(full_stats$shap_expr_cor[j]) &
+        abs(bootstrap_correlations[valid]) >= shap_expr_cor_cutoff
+    )
+  }, numeric(1))
+  value_shap_valid <- colSums(is.finite(value_shap_bootstrap))
+
+  cross_patient_support <- rowMeans(cbind(
+    importance_retention[, "support"],
+    expression_retention[, "support"],
+    value_shap_support
+  ))
+  support_table <- data.frame(
+    feature = feature_names,
+    cross_patient_support = cross_patient_support,
+    cross_patient_support_available = TRUE,
+    cross_patient_support_unavailable_reason = NA_character_,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  diagnostics <- data.frame(
+    feature = feature_names,
+    cross_patient_support = cross_patient_support,
+    shap_importance_support = importance_retention[, "support"],
+    expression_signal_support = expression_retention[, "support"],
+    value_shap_relationship_support = value_shap_support,
+    shap_importance_bootstrap_median = importance_retention[, "median"],
+    shap_importance_bootstrap_q05 = importance_retention[, "q05"],
+    expression_signal_bootstrap_median = expression_retention[, "median"],
+    expression_signal_bootstrap_q05 = expression_retention[, "q05"],
+    shap_importance_valid_bootstraps = as.integer(importance_retention[, "n_valid"]),
+    expression_signal_valid_bootstraps = as.integer(expression_retention[, "n_valid"]),
+    value_shap_valid_bootstraps = as.integer(value_shap_valid),
+    n_bootstraps_requested = n_bootstraps,
+    n_bootstraps_valid_task = sum(task_bootstrap_valid),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+
+  list(
+    support = support_table,
+    diagnostics = diagnostics,
+    available = TRUE,
+    reason = NA_character_,
+    n_patients_condition0 = patient_counts[1],
+    n_patients_condition1 = patient_counts[2],
+    n_patients_total = length(common_patient_ids),
+    n_bootstraps_requested = n_bootstraps,
+    n_bootstraps_valid_task = sum(task_bootstrap_valid)
+  )
+}
+
+
+#' Compute legacy patient-level SHAP summary statistics
 #'
 #' Collapses observation-level SHAP values to patient-level units and computes
 #' descriptive support plus permutation/bootstrap summaries.
@@ -12,7 +546,8 @@
 #' @param seed Random seed.
 #'
 #' @return Data frame with one row per feature.
-#' @export
+#' @keywords internal
+#' @noRd
 compute_patient_level_shap_stats <- function(
     shap_matrix,
     metadata,
@@ -98,6 +633,7 @@ compute_patient_level_shap_stats <- function(
 #'
 #' @return Data frame with one row per feature.
 #' @keywords internal
+#' @noRd
 .compute_patient_level_shap_stats_from_patient_means <- function(
     patient_means,
     unit_conditions,
@@ -175,13 +711,14 @@ compute_patient_level_shap_stats <- function(
 }
 
 
-#' Compute the minimum achievable permutation p-value
+#' Compute the legacy minimum achievable permutation p-value
 #'
 #' @param n_condition0 Number of patients in condition 0.
 #' @param n_condition1 Number of patients in condition 1.
 #'
 #' @return Minimum non-zero p-value under exact patient-label permutations.
-#' @export
+#' @keywords internal
+#' @noRd
 compute_min_achievable_permutation_p <- function(n_condition0, n_condition1) {
   if (!is.finite(n_condition0) || !is.finite(n_condition1) ||
       n_condition0 < 1 || n_condition1 < 1) {
@@ -197,11 +734,10 @@ compute_min_achievable_permutation_p <- function(n_condition0, n_condition1) {
 }
 
 
-#' Select the patient-level support component
+#' Select the legacy patient-level support component
 #'
-#' Uses descriptive patient support when patient counts are too small for
-#' reliable permutation-based inference, and adjusted permutation p-values once
-#' enough patients are available.
+#' Retained internally so older saved workflows can still be interpreted. The
+#' current ranking uses `compute_cross_patient_support()` instead.
 #'
 #' @param stats_results Data frame containing support and adjusted p-values.
 #' @param min_patients Minimum number of patients across the two comparison arms.
@@ -209,7 +745,8 @@ compute_min_achievable_permutation_p <- function(n_condition0, n_condition1) {
 #' @param pval_col Name of the adjusted p-value column.
 #'
 #' @return A list describing the score, label, and interpretation metadata.
-#' @export
+#' @keywords internal
+#' @noRd
 select_patient_level_support_component <- function(
     stats_results,
     min_patients,

@@ -7,7 +7,7 @@
 normalize_score_weights <- function(prior_weights = NULL) {
   default_weights <- c(
     importance = 0.25,
-    patient_level_support = 0.10,
+    cross_patient_support = 0.10,
     model_reproducibility = 0.10,
     expression = 0.25,
     value_shap = 0.30
@@ -23,8 +23,10 @@ normalize_score_weights <- function(prior_weights = NULL) {
   name_map <- c(
     SHAP_importance_prior_weight = "importance",
     importance = "importance",
-    patient_level_support_prior_weight = "patient_level_support",
-    patient_level_support = "patient_level_support",
+    cross_patient_support_prior_weight = "cross_patient_support",
+    cross_patient_support = "cross_patient_support",
+    patient_level_support_prior_weight = "cross_patient_support",
+    patient_level_support = "cross_patient_support",
     model_reproducibility_prior_weight = "model_reproducibility",
     model_reproducibility = "model_reproducibility",
     stability = "model_reproducibility",
@@ -55,6 +57,100 @@ normalize_score_weights <- function(prior_weights = NULL) {
 }
 
 
+#' Fit a fixed SHAPTURE score scaler
+#'
+#' @param x Numeric reference values.
+#' @param method Either `"winsorized"` or `"minmax"`.
+#' @param probs Lower and upper quantiles for winsorized scaling.
+#' @param neutral Value assigned when the reference component is constant.
+#'
+#' @return A fitted scaler specification.
+#' @keywords internal
+fit_shapture_score_scaler <- function(
+    x,
+    method = c("winsorized", "minmax"),
+    probs = c(0.05, 0.95),
+    neutral = 0.5
+) {
+  method <- match.arg(method)
+  finite_values <- as.numeric(x[is.finite(x)])
+
+  if (length(finite_values) == 0) {
+    return(list(lower = NA_real_, upper = NA_real_, constant = TRUE, neutral = neutral))
+  }
+
+  if (identical(method, "winsorized") && length(finite_values) > 2) {
+    limits <- as.numeric(stats::quantile(
+      finite_values,
+      probs = probs,
+      na.rm = TRUE,
+      names = FALSE
+    ))
+  } else {
+    limits <- range(finite_values, na.rm = TRUE)
+  }
+
+  list(
+    lower = limits[1],
+    upper = limits[2],
+    constant = !all(is.finite(limits)) || limits[2] <= limits[1],
+    neutral = neutral
+  )
+}
+
+
+#' Apply a fixed SHAPTURE score scaler
+#'
+#' @param x Numeric values to transform.
+#' @param scaler Scaler returned by `fit_shapture_score_scaler()`.
+#'
+#' @return Numeric vector on a 0-1 scale. Non-finite inputs remain `NA`.
+#' @keywords internal
+apply_shapture_score_scaler <- function(x, scaler) {
+  out <- rep(NA_real_, length(x))
+  finite_index <- is.finite(x)
+  if (!any(finite_index)) {
+    return(out)
+  }
+
+  if (isTRUE(scaler$constant)) {
+    out[finite_index] <- scaler$neutral
+    return(out)
+  }
+
+  scaled <- (x[finite_index] - scaler$lower) / (scaler$upper - scaler$lower)
+  out[finite_index] <- pmin(pmax(scaled, 0), 1)
+  out
+}
+
+
+#' Scale a score component using SHAPTURE's configured method
+#'
+#' @param x Numeric values.
+#' @param method Either `"winsorized"` or `"minmax"`.
+#' @param probs Lower and upper quantiles for winsorized scaling.
+#' @param neutral Value assigned when the component is constant.
+#'
+#' @return Numeric vector on a 0-1 scale.
+#' @keywords internal
+scale_shapture_score_component <- function(
+    x,
+    method = c("winsorized", "minmax"),
+    probs = c(0.05, 0.95),
+    neutral = 0.5
+) {
+  scaler <- fit_shapture_score_scaler(
+    x = x,
+    method = method,
+    probs = probs,
+    neutral = neutral
+  )
+  out <- apply_shapture_score_scaler(x, scaler)
+  out[!is.finite(out)] <- neutral
+  out
+}
+
+
 #' Compute adaptive component weights
 #'
 #' @param combined Combined feature table containing scaled component columns.
@@ -76,13 +172,18 @@ compute_adaptive_weights <- function(
     winsorize = TRUE,
     winsor_probs = c(0.05, 0.95)
 ) {
+  support_available <- "cross_patient_support" %in% colnames(combined) &&
+    any(is.finite(combined$cross_patient_support))
   component_cols <- c(
     importance = "importance_scaled",
-    patient_level_support = "patient_level_support_scaled",
+    cross_patient_support = "cross_patient_support",
     model_reproducibility = "model_reproducibility_scaled",
     expression = "expression_score",
     value_shap = "shap_expr_cor_abs_scaled"
   )
+  if (!support_available) {
+    component_cols <- component_cols[names(component_cols) != "cross_patient_support"]
+  }
   
   missing_cols <- setdiff(component_cols, colnames(combined))
   if (length(missing_cols) > 0) {
@@ -96,6 +197,7 @@ compute_adaptive_weights <- function(
   
   prior_weights <- normalize_score_weights(prior_weights)
   prior_weights <- prior_weights[names(component_cols)]
+  prior_weights <- prior_weights / sum(prior_weights)
   
   winsorize_vec <- function(v, probs = c(0.05, 0.95)) {
     v_finite <- v[is.finite(v)]
@@ -131,42 +233,9 @@ compute_adaptive_weights <- function(
   w <- pmax(w, min_weight)
   w <- w / sum(w)
   
-  names(w) <- c(
-    "w_importance",
-    "w_patient_level_support",
-    "w_model_reproducibility",
-    "w_expression",
-    "w_value_shap"
-  )
+  names(w) <- paste0("w_", names(component_cols))
   
   w
-}
-
-
-#' Add a descriptive-only caption to a plot when needed
-#'
-#' @param p A ggplot or plot-grid object.
-#' @param inference_reliable Logical flag indicating whether inference is
-#'   considered reliable.
-#' @param min_patients Minimum patients per comparison arm.
-#'
-#' @return Plot object with an optional caption.
-#' @export
-add_inference_warning <- function(p, inference_reliable, min_patients) {
-  if (!isTRUE(inference_reliable)) {
-    p <- p +
-      ggplot2::labs(
-        caption = paste0("DESCRIPTIVE ONLY - min patients/group = ", min_patients)
-      ) +
-      ggplot2::theme(
-        plot.caption = ggplot2::element_text(
-          colour = "firebrick",
-          size = 7,
-          face = "italic"
-        )
-      )
-  }
-  p
 }
 
 
@@ -317,7 +386,7 @@ add_direction_info <- function(
 #' @param stats_results Data frame containing SHAP statistics and expression
 #'   summaries, including `within_condition_consistency_raw`.
 #' @param w_importance Weight for SHAP importance.
-#' @param w_patient_level_support Weight for patient-level support.
+#' @param w_cross_patient_support Weight for Cross-patient support.
 #' @param w_model_reproducibility Weight for model reproducibility.
 #' @param w_expression Weight for expression signal.
 #' @param w_value_shap Weight for value-to-SHAP association.
@@ -343,7 +412,7 @@ compute_combined_shap_ranking <- function(
     average_importance,
     stats_results,
     w_importance = 0.25,
-    w_patient_level_support = 0.10,
+    w_cross_patient_support = 0.10,
     w_model_reproducibility = 0.10,
     w_expression = 0.25,
     w_value_shap = 0.30,
@@ -367,30 +436,12 @@ compute_combined_shap_ranking <- function(
   }
   
   safe_rescale <- function(x, neutral = 0.5) {
-    finite_idx <- is.finite(x)
-    out <- rep(neutral, length(x))
-    
-    if (!any(finite_idx)) {
-      return(out)
-    }
-    
-    finite_vals <- x[finite_idx]
-    if (length(unique(finite_vals)) <= 1) {
-      out[finite_idx] <- neutral
-      return(out)
-    }
-    
-    if (identical(score_scaling_method, "winsorized") && length(finite_vals) > 2) {
-      qs <- stats::quantile(finite_vals, probs = score_scaling_probs, na.rm = TRUE, names = FALSE)
-      finite_vals <- pmin(pmax(finite_vals, qs[1]), qs[2])
-      if (length(unique(finite_vals)) <= 1) {
-        out[finite_idx] <- neutral
-        return(out)
-      }
-    }
-    
-    out[finite_idx] <- scales::rescale(finite_vals)
-    out
+    scale_shapture_score_component(
+      x = x,
+      method = score_scaling_method,
+      probs = score_scaling_probs,
+      neutral = neutral
+    )
   }
   
   combined <- merge(average_importance, stats_results, by = "feature")
@@ -418,26 +469,25 @@ compute_combined_shap_ranking <- function(
   
   combined$importance_scaled <- safe_rescale(combined$`average|SHAP value|`)
   
-  min_patients_values <- unique(combined$min_patients)
-  if (length(min_patients_values) != 1) {
-    stop("stats_results$min_patients must be constant within one ranking task.")
+  if (!"cross_patient_support" %in% colnames(combined)) {
+    stop("stats_results must contain cross_patient_support.")
   }
-  
-  support_component <- select_patient_level_support_component(
-    stats_results = combined,
-    min_patients = min_patients_values[1],
-    bootstrap_support_col = "bootstrap_support",
-    pval_col = "padj"
-  )
-  
-  combined$bootstrap_support[!is.finite(combined$bootstrap_support)] <- 0.5
-  combined$bootstrap_support_scaled <- safe_rescale(combined$bootstrap_support)
-  combined$patient_level_support_score <- support_component$score
-  combined$patient_level_support_scaled <- safe_rescale(support_component$score)
-  combined$patient_level_support_method <- support_component$label
-  combined$patient_level_support_plot_label <- support_component$plot_label
-  combined$patient_level_support_note <- support_component$note
-  combined$inference_reliable <- support_component$reliable
+  if (!"cross_patient_support_available" %in% colnames(combined)) {
+    stop("stats_results must contain cross_patient_support_available.")
+  }
+  support_available_values <- unique(combined$cross_patient_support_available)
+  if (length(support_available_values) != 1 || is.na(support_available_values)) {
+    stop("cross_patient_support_available must be one constant logical value within a ranking task.")
+  }
+  cross_patient_support_available <- isTRUE(support_available_values[1])
+  if (cross_patient_support_available) {
+    if (any(!is.finite(combined$cross_patient_support)) ||
+        any(combined$cross_patient_support < 0 | combined$cross_patient_support > 1)) {
+      stop("Available cross_patient_support values must be finite and between 0 and 1.")
+    }
+  } else {
+    combined$cross_patient_support[] <- NA_real_
+  }
   
   combined$model_reproducibility_scaled <- safe_rescale(combined$stability)
   combined$effect_abs <- abs(combined$effect_size)
@@ -468,7 +518,7 @@ compute_combined_shap_ranking <- function(
     if (is.null(default_prior_scores_weights)) {
       c(
         importance = w_importance,
-        patient_level_support = w_patient_level_support,
+        cross_patient_support = w_cross_patient_support,
         model_reproducibility = w_model_reproducibility,
         expression = w_expression,
         value_shap = w_value_shap
@@ -478,8 +528,13 @@ compute_combined_shap_ranking <- function(
     }
   )
   
+  if (!cross_patient_support_available) {
+    prior_weights["cross_patient_support"] <- 0
+    prior_weights <- prior_weights / sum(prior_weights)
+  }
+
   if (adaptive_weights) {
-    w_vec <- compute_adaptive_weights(
+    adaptive_weight_values <- compute_adaptive_weights(
       combined = combined,
       min_weight = min_adaptive_weight,
       use_mad = TRUE,
@@ -488,11 +543,19 @@ compute_combined_shap_ranking <- function(
       winsorize = TRUE,
       winsor_probs = score_scaling_probs
     )
+    w_vec <- c(
+      w_importance = 0,
+      w_cross_patient_support = 0,
+      w_model_reproducibility = 0,
+      w_expression = 0,
+      w_value_shap = 0
+    )
+    w_vec[names(adaptive_weight_values)] <- adaptive_weight_values
   } else {
     w_vec <- prior_weights
     names(w_vec) <- c(
       "w_importance",
-      "w_patient_level_support",
+      "w_cross_patient_support",
       "w_model_reproducibility",
       "w_expression",
       "w_value_shap"
@@ -500,14 +563,18 @@ compute_combined_shap_ranking <- function(
   }
   
   combined$weight_importance <- w_vec["w_importance"]
-  combined$weight_patient_level_support <- w_vec["w_patient_level_support"]
+  combined$weight_cross_patient_support <- w_vec["w_cross_patient_support"]
   combined$weight_model_reproducibility <- w_vec["w_model_reproducibility"]
   combined$weight_expression <- w_vec["w_expression"]
   combined$weight_value_shap <- w_vec["w_value_shap"]
   
   combined$final_score <-
     w_vec["w_importance"] * combined$importance_scaled +
-    w_vec["w_patient_level_support"] * combined$patient_level_support_scaled +
+    ifelse(
+      cross_patient_support_available,
+      w_vec["w_cross_patient_support"] * combined$cross_patient_support,
+      0
+    ) +
     w_vec["w_model_reproducibility"] * combined$model_reproducibility_scaled +
     w_vec["w_expression"] * combined$expression_score +
     w_vec["w_value_shap"] * combined$shap_expr_cor_abs_scaled

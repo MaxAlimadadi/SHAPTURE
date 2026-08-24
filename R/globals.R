@@ -8,7 +8,7 @@ utils::globalVariables(c(
   "condition",
   "contribution_expression",
   "contribution_importance",
-  "contribution_patient_level_support",
+  "contribution_cross_patient_support",
   "contribution_model_reproducibility",
   "contribution_value_shap",
   "descriptive_support",
@@ -25,7 +25,7 @@ utils::globalVariables(c(
   "metric",
   "Model_expression_pattern",
   "model_reproducibility_scaled",
-  "patient_level_support_scaled",
+  "cross_patient_support",
   "sample_id",
   "score",
   "shap_expr_cor",
@@ -37,7 +37,7 @@ utils::globalVariables(c(
   "weight_expression",
   "weight_importance",
   "weight_model_reproducibility",
-  "weight_patient_level_support",
+  "weight_cross_patient_support",
   "weight_value_shap",
   "average|SHAP value|"
 ))

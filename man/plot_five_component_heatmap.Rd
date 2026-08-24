@@ -8,7 +8,7 @@ plot_five_component_heatmap(
   df,
   top_n_to_show,
   continuous_colors,
-  title = "Five-component support matrix",
+  title = NULL,
   tile_color = "white",
   tile_linewidth = 0.25
 )

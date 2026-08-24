@@ -68,7 +68,7 @@ default_shapture_script_config <- function(what_genes) {
       SHAP_importance_prior_weight = 0.25,
       expression_signal_prior_weight = 0.25,
       value_SHAP_relationship_prior_weight = 0.30,
-      patient_level_support_prior_weight = 0.10,
+      cross_patient_support_prior_weight = 0.10,
       model_reproducibility_prior_weight = 0.10
     ),
     preprocessing_method = "scale",
@@ -228,7 +228,7 @@ write_shapture_config_csv <- function(config_list, output_path) {
       importance = "SHAP_importance_prior_weight",
       expression = "expression_signal_prior_weight",
       value_shap = "value_SHAP_relationship_prior_weight",
-      patient_level_support = "patient_level_support_prior_weight",
+      cross_patient_support = "cross_patient_support_prior_weight",
       model_reproducibility = "model_reproducibility_prior_weight"
     )
     score_weights <- config_list$default_prior_scores_weights
@@ -239,7 +239,7 @@ write_shapture_config_csv <- function(config_list, output_path) {
         "importance",
         "expression",
         "value_shap",
-        "patient_level_support",
+        "cross_patient_support",
         "model_reproducibility"
       )]
       names(score_weights) <- unname(weight_name_map[names(score_weights)])
@@ -1905,7 +1905,6 @@ run_shapture_task <- function(
       ]
     ))
     min_patients <- min(patient_count_condition0, patient_count_condition1)
-    inference_reliable <- is.finite(min_patients) && min_patients >= 3
   } else if ("sample_id" %in% colnames(dataset_task)) {
     n_patients_per_condition <- dataset_task %>%
       dplyr::group_by(condition) %>%
@@ -1916,18 +1915,11 @@ run_shapture_task <- function(
     patient_count_condition0 <- ifelse(length(patient_count_condition0) == 0, NA_integer_, patient_count_condition0)
     patient_count_condition1 <- ifelse(length(patient_count_condition1) == 0, NA_integer_, patient_count_condition1)
     min_patients <- min(c(patient_count_condition0, patient_count_condition1), na.rm = TRUE)
-    inference_reliable <- is.finite(min_patients) && min_patients >= 3
   } else {
     patient_count_condition0 <- NA_integer_
     patient_count_condition1 <- NA_integer_
     min_patients <- NA_integer_
-    inference_reliable <- FALSE
   }
-  
-  min_achievable_p <- compute_min_achievable_permutation_p(
-    n_condition0 = patient_count_condition0,
-    n_condition1 = patient_count_condition1
-  )
   
   delta_mat <- rbind_named_vectors(delta_list, nonzero_feature_cols)
   stability <- apply(delta_mat, 2, function(x) {
@@ -1939,47 +1931,34 @@ run_shapture_task <- function(
   })
   
   if (memory_mode == "full") {
-    patient_level_stats <- compute_patient_level_shap_stats(
-      shap_matrix = as.matrix(shp_S),
-      metadata = shp_testdata,
-      sample_col = "sample_id",
-      condition_col = "condition",
-      n_permutations = 1000,
-      n_bootstraps = 1000,
-      seed = 42
-    )
+    unit_shap_matrix <- as.matrix(shp_S)
+    unit_feature_matrix <- as.matrix(shp_X)
+    unit_shap_metadata <- as.data.frame(shp_testdata, check.names = FALSE)
   } else {
-    patient_chunk_res <- build_patient_means_from_chunks(
+    unit_average_all <- average_shap_by_unit_from_chunks(
       chunk_files = chunk_files,
-      feature_names = nonzero_feature_cols,
-      sample_col = "sample_id",
-      condition_col = "condition"
+      feature_names = nonzero_feature_cols
     )
-    patient_level_stats <- .compute_patient_level_shap_stats_from_patient_means(
-      patient_means = patient_chunk_res$patient_means,
-      unit_conditions = patient_chunk_res$patient_units$condition,
-      n_permutations = 1000,
-      n_bootstraps = 1000,
-      seed = 42
-    )
-    rm(patient_chunk_res)
-    gc(verbose = FALSE)
+    unit_shap_matrix <- as.matrix(unit_average_all$S)
+    unit_feature_matrix <- as.matrix(unit_average_all$X)
+    unit_shap_metadata <- as.data.frame(unit_average_all$metadata, check.names = FALSE)
+    rm(unit_average_all)
   }
-  
-  patient_level_stats$padj <- stats::p.adjust(patient_level_stats$pval, method = "fdr", n = nrow(patient_level_stats))
-  patient_level_stats$stability <- stability[patient_level_stats$feature]
+
+  patient_shap_effect <- compute_patient_balanced_shap_effect(
+    shap_matrix = unit_shap_matrix,
+    metadata = unit_shap_metadata,
+    sample_col = "sample_id",
+    condition_col = "condition"
+  )
   
   stats_results <- data.frame(
-    feature = patient_level_stats$feature,
-    effect_size = patient_level_stats$effect_size,
-    pval = patient_level_stats$pval,
-    padj = patient_level_stats$padj,
-    bootstrap_support = patient_level_stats$bootstrap_support,
-    stability = patient_level_stats$stability,
+    feature = patient_shap_effect$feature,
+    effect_size = patient_shap_effect$effect_size,
+    stability = stability[patient_shap_effect$feature],
     n_patients_condition0 = patient_count_condition0,
     n_patients_condition1 = patient_count_condition1,
-    min_patients = min_patients,
-    inference_reliable = inference_reliable
+    min_patients = min_patients
   )
   
   expression_matrix <- as.matrix(dataset_task[, nonzero_feature_cols, drop = FALSE])
@@ -2075,31 +2054,18 @@ run_shapture_task <- function(
   rm(within_condition_consistency)
   gc(verbose = FALSE)
   
-  if (memory_mode == "full") {
-    shp_S_mat <- as.matrix(shp_S)
-    shp_X_mat <- as.matrix(shp_X)
-    common_features <- intersect(colnames(shp_S_mat), colnames(shp_X_mat))
-    
-    shap_expr_cor <- sapply(common_features, function(f) {
-      suppressWarnings(
-        stats::cor(
-          shp_X_mat[, f],
-          shp_S_mat[, f],
-          method = "spearman",
-          use = "pairwise.complete.obs"
-        )
+  common_features <- intersect(colnames(unit_shap_matrix), colnames(unit_feature_matrix))
+  shap_expr_cor <- vapply(common_features, function(f) {
+    suppressWarnings(
+      stats::cor(
+        unit_feature_matrix[, f],
+        unit_shap_matrix[, f],
+        method = "spearman",
+        use = "pairwise.complete.obs"
       )
-    })
-    shap_expr_cor[!is.finite(shap_expr_cor)] <- 0
-    rm(shp_S_mat, shp_X_mat)
-    gc(verbose = FALSE)
-  } else {
-    shap_expr_cor <- compute_shap_expr_cor_from_chunks(
-      chunk_files = chunk_files,
-      feature_names = nonzero_feature_cols,
-      block_size = 32L
     )
-  }
+  }, numeric(1))
+  shap_expr_cor[!is.finite(shap_expr_cor)] <- 0
   shap_expr_cor_abs <- abs(shap_expr_cor)
   missing_shap_expr_cor_features <- setdiff(stats_results$feature, names(shap_expr_cor))
   if (length(missing_shap_expr_cor_features) > 0) {
@@ -2129,25 +2095,49 @@ run_shapture_task <- function(
     )
   }
   
-  if (memory_mode == "full") {
-    average_importance_for_ranking <- data.frame(
-      feature = colnames(shp_S),
-      `average|SHAP value|` = colMeans(abs(as.matrix(shp_S)), na.rm = TRUE),
-      check.names = FALSE
-    )
-  } else {
-    unit_avg_importance <- average_shap_by_unit_from_chunks(
-      chunk_files = chunk_files,
-      feature_names = nonzero_feature_cols
-    )
-    average_importance_for_ranking <- data.frame(
-      feature = colnames(unit_avg_importance$S),
-      `average|SHAP value|` = colMeans(abs(as.matrix(unit_avg_importance$S)), na.rm = TRUE),
-      check.names = FALSE
-    )
-    rm(unit_avg_importance)
-    gc(verbose = FALSE)
+  average_importance_for_ranking <- data.frame(
+    feature = colnames(unit_shap_matrix),
+    `average|SHAP value|` = colMeans(abs(unit_shap_matrix), na.rm = TRUE),
+    check.names = FALSE
+  )
+
+  support_pattern <- compute_model_expression_pattern(
+    expression_log2FC = stats_results$expression_log2FC,
+    shap_expr_cor = stats_results$shap_expr_cor,
+    what_0 = task_what_0,
+    what_1 = task_what_1,
+    expression_log2FC_cutoff = feature_min_log2FC,
+    shap_expr_cor_cutoff = shap_expr_cor_cutoff
+  )
+  insufficient_pattern <- unname(
+    model_expression_pattern_labels(task_what_0, task_what_1)["insufficient"]
+  )
+  support_feature_names <- stats_results$feature[support_pattern != insufficient_pattern]
+  if (length(support_feature_names) == 0) {
+    stop("No features remain for Cross-patient support after model-expression pattern filtering.")
   }
+
+  cross_patient_result <- compute_cross_patient_support(
+    shap_matrix = unit_shap_matrix,
+    shap_feature_values = unit_feature_matrix,
+    shap_metadata = unit_shap_metadata,
+    model_expression_data = dataset_task[, c("sample_id", "condition", support_feature_names), drop = FALSE],
+    single_cell_expression_data = dataset_task_singlecell[, c("sample_id", "condition", support_feature_names), drop = FALSE],
+    full_stats = stats_results,
+    average_importance = average_importance_for_ranking,
+    feature_names = support_feature_names,
+    comparison_mode = comparison_mode,
+    feature_min_log2FC = feature_min_log2FC,
+    shap_expr_cor_cutoff = shap_expr_cor_cutoff,
+    score_scaling_method = score_scaling_method,
+    score_scaling_probs = score_scaling_probs,
+    n_bootstraps = 1000L,
+    seed = 42L
+  )
+  support_match <- match(stats_results$feature, cross_patient_result$support$feature)
+  stats_results$cross_patient_support <- cross_patient_result$support$cross_patient_support[support_match]
+  stats_results$cross_patient_support_available <- cross_patient_result$available
+  stats_results$cross_patient_support_unavailable_reason <- cross_patient_result$reason
   
   mean_auc <- mean(AUC_all$auc, na.rm = TRUE)
   sd_auc <- stats::sd(AUC_all$auc, na.rm = TRUE)
@@ -2182,10 +2172,16 @@ run_shapture_task <- function(
   if (length(retained_feature_names) == 0) {
     stop("No retained ranked features are available for SHAP-only summaries in ", temp_split, ".")
   }
-  inference_reliable_flag <- isTRUE(unique(combined_results$inference_reliable)[1])
   min_patients_value <- unique(combined_results$min_patients)[1]
-  patient_level_support_plot_label <- unique(combined_results$patient_level_support_plot_label)[1]
-  patient_level_support_note <- unique(combined_results$patient_level_support_note)[1]
+  cross_patient_support_available <- isTRUE(cross_patient_result$available)
+  cross_patient_support_note <- if (cross_patient_support_available) {
+    paste0(
+      "Cross-patient support used ", cross_patient_result$n_bootstraps_valid_task,
+      " valid patient-block bootstraps out of ", cross_patient_result$n_bootstraps_requested, "."
+    )
+  } else {
+    "Cross-patient support unavailable: insufficient patients. Final scores use four renormalized components."
+  }
   
   stats_interpretation <- data.frame(
     split_level = temp_split,
@@ -2195,51 +2191,55 @@ run_shapture_task <- function(
     n_patients_condition0 = patient_count_condition0,
     n_patients_condition1 = patient_count_condition1,
     min_patients = min_patients,
-    inference_reliable = inference_reliable_flag,
+    cross_patient_eligible_patients_condition0 = cross_patient_result$n_patients_condition0,
+    cross_patient_eligible_patients_condition1 = cross_patient_result$n_patients_condition1,
+    cross_patient_eligible_patients_total = cross_patient_result$n_patients_total,
     patient_split_strategy_requested = patient_split_strategy_requested,
     patient_split_strategy_used = patient_split_strategy_used,
     patient_split_fallback_reason = patient_split_fallback_reason,
-    patient_level_support_method = unique(combined_results$patient_level_support_method)[1],
-    patient_level_support_note = patient_level_support_note,
+    cross_patient_support_available = cross_patient_support_available,
+    cross_patient_support_unavailable_reason = cross_patient_result$reason,
+    cross_patient_support_method = "patient_block_bootstrap",
+    cross_patient_support_bootstraps_requested = cross_patient_result$n_bootstraps_requested,
+    cross_patient_support_bootstraps_valid = cross_patient_result$n_bootstraps_valid_task,
+    cross_patient_support_note = cross_patient_support_note,
     shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
     n_features_before_direction_filter = n_features_before_direction_filter,
     n_features_after_direction_filter = n_features_after_direction_filter,
     n_features_before_model_expression_pattern_filter = unique(combined_results$n_features_before_model_expression_pattern_filter)[1],
     n_features_after_model_expression_pattern_filter = unique(combined_results$n_features_after_model_expression_pattern_filter)[1],
-    pval_min_achievable = min_achievable_p,
-    pval_min_achievable_note = if (is.na(min_achievable_p)) {
-      "Minimum achievable permutation p-value is unavailable for this task because patient counts are too small or missing."
-    } else {
-      "Minimum achievable permutation p-value under exact patient-label permutations for the current patient counts."
-    },
-    interpretation = if (inference_reliable_flag) {
-      "Patient-level support uses permutation-adjusted p-value evidence; interpret as approximate inferential evidence."
-    } else {
-      "Descriptive-only mode: patient-level bootstrap support is used instead of inferential p-value evidence."
-    },
+    interpretation = cross_patient_support_note,
     stringsAsFactors = FALSE
   )
   
   write.csv(stats_interpretation, "docs/stats_interpretation.csv", row.names = FALSE)
   write.csv(
     data.frame(
-      patient_level_support_method = unique(combined_results$patient_level_support_method)[1],
-      patient_level_support_plot_label = patient_level_support_plot_label,
+      cross_patient_support_method = "patient_block_bootstrap",
+      cross_patient_support_available = cross_patient_support_available,
+      cross_patient_support_unavailable_reason = cross_patient_result$reason,
+      n_bootstraps_requested = cross_patient_result$n_bootstraps_requested,
+      n_bootstraps_valid = cross_patient_result$n_bootstraps_valid_task,
       patient_split_strategy_requested = patient_split_strategy_requested,
       patient_split_strategy_used = patient_split_strategy_used,
       shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
-      patient_level_support_note = patient_level_support_note,
+      cross_patient_support_note = cross_patient_support_note,
       stringsAsFactors = FALSE
     ),
-    "docs/patient_level_support_method_used.csv",
+    "docs/cross_patient_support_method_used.csv",
+    row.names = FALSE
+  )
+  write.csv(
+    cross_patient_result$diagnostics,
+    "docs/cross_patient_support_by_feature.csv",
     row.names = FALSE
   )
   
   weight_table <- data.frame(
-    component = c("SHAP_importance", "patient_level_support", "model_reproducibility", "expression_signal", "value_SHAP_relationship"),
+    component = c("SHAP_importance", "cross_patient_support", "model_reproducibility", "expression_signal", "value_SHAP_relationship"),
     weight = c(
       combined_results$weight_importance[1],
-      combined_results$weight_patient_level_support[1],
+      combined_results$weight_cross_patient_support[1],
       combined_results$weight_model_reproducibility[1],
       combined_results$weight_expression[1],
       combined_results$weight_value_shap[1]
@@ -2380,8 +2380,14 @@ run_shapture_task <- function(
     n_patients_condition0 = patient_count_condition0,
     n_patients_condition1 = patient_count_condition1,
     min_patients = min_patients,
-    inference_reliable = inference_reliable_flag,
-    patient_level_support_method = unique(combined_results$patient_level_support_method)[1],
+    cross_patient_eligible_patients_condition0 = cross_patient_result$n_patients_condition0,
+    cross_patient_eligible_patients_condition1 = cross_patient_result$n_patients_condition1,
+    cross_patient_eligible_patients_total = cross_patient_result$n_patients_total,
+    cross_patient_support_available = cross_patient_support_available,
+    cross_patient_support_unavailable_reason = cross_patient_result$reason,
+    cross_patient_support_method = "patient_block_bootstrap",
+    cross_patient_support_bootstraps_requested = cross_patient_result$n_bootstraps_requested,
+    cross_patient_support_bootstraps_valid = cross_patient_result$n_bootstraps_valid_task,
     pooled_auc = as.numeric(roc_plot_all_iteration$auc),
     mean_iteration_auc = mean_auc,
     sd_iteration_auc = sd_auc,
@@ -2467,11 +2473,12 @@ run_shapture_task <- function(
     task_what_1 = task_what_1,
     top_feature_label_actual = top_feature_label_actual,
     top_feature_show_actual = top_feature_show_actual,
-    inference_reliable = inference_reliable_flag,
     min_patients = min_patients_value,
     feature_min_log2FC = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
-    patient_level_support_plot_label = patient_level_support_plot_label
+    cross_patient_support_available = cross_patient_support_available,
+    cross_patient_support_unavailable_reason = cross_patient_result$reason,
+    cross_patient_support_note = cross_patient_support_note
   )
   save_shapture_visualization_inputs(
     output_dir = getwd(),
@@ -2497,7 +2504,12 @@ run_shapture_task <- function(
     continuous_colors = continuous_colors
   )
   
-  rm(iter_results, shp_S, shp_X, shp_testdata, beeswarm_source_S, beeswarm_source_X, condition_aggregate_data, density_source)
+  rm(
+    iter_results, shp_S, shp_X, shp_testdata, beeswarm_source_S,
+    beeswarm_source_X, condition_aggregate_data, density_source,
+    unit_shap_matrix, unit_feature_matrix, unit_shap_metadata,
+    cross_patient_result
+  )
   gc(verbose = FALSE)
   
   list(
@@ -2611,7 +2623,7 @@ run_shapture_pipeline <- function(
       SHAP_importance_prior_weight = 0.25,
       expression_signal_prior_weight = 0.25,
       value_SHAP_relationship_prior_weight = 0.30,
-      patient_level_support_prior_weight = 0.10,
+      cross_patient_support_prior_weight = 0.10,
       model_reproducibility_prior_weight = 0.10
     ),
     preprocessing_method = "scale",

@@ -102,9 +102,8 @@ test_that("Expression signal uses the new consistency score", {
   stats_results <- data.frame(
     feature = c("feature_a", "feature_b", "feature_c"),
     effect_size = c(0.2, 0.3, 0.4),
-    pval = c(0.1, 0.05, 0.01),
-    padj = c(0.1, 0.05, 0.03),
-    bootstrap_support = c(0.7, 0.8, 0.9),
+    cross_patient_support = c(0.7, 0.8, 0.9),
+    cross_patient_support_available = TRUE,
     stability = c(0.7, 0.8, 0.9),
     min_patients = rep(3, 3),
     expression_log2FC = c(1, 2, 3),
@@ -119,7 +118,7 @@ test_that("Expression signal uses the new consistency score", {
     stats_results = stats_results,
     default_prior_scores_weights = c(
       importance = 0,
-      patient_level_support = 0,
+      cross_patient_support = 0,
       model_reproducibility = 0,
       expression = 1,
       value_shap = 0

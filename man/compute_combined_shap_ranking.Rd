@@ -8,7 +8,7 @@ compute_combined_shap_ranking(
   average_importance,
   stats_results,
   w_importance = 0.25,
-  w_patient_level_support = 0.1,
+  w_cross_patient_support = 0.1,
   w_model_reproducibility = 0.1,
   w_expression = 0.25,
   w_value_shap = 0.3,
@@ -31,7 +31,7 @@ summaries, including \code{within_condition_consistency_raw}.}
 
 \item{w_importance}{Weight for SHAP importance.}
 
-\item{w_patient_level_support}{Weight for patient-level support.}
+\item{w_cross_patient_support}{Weight for Cross-patient support.}
 
 \item{w_model_reproducibility}{Weight for model reproducibility.}
 

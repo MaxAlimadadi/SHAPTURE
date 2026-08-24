@@ -31,7 +31,7 @@ run_shapture_pipeline(
   score_scaling_probs = c(0.05, 0.95),
   default_prior_scores_weights = c(SHAP_importance_prior_weight = 0.25,
     expression_signal_prior_weight = 0.25, value_SHAP_relationship_prior_weight = 0.3,
-    patient_level_support_prior_weight = 0.1, model_reproducibility_prior_weight = 0.1),
+    cross_patient_support_prior_weight = 0.1, model_reproducibility_prior_weight = 0.1),
   preprocessing_method = "scale",
   model_type = "lightgbm",
   analysis_unit_type = "metacell",

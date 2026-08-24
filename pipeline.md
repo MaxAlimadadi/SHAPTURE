@@ -1,7 +1,7 @@
 # SHAPTURE pipeline
 
 ## Overview
-This pipeline is designed to identify features that distinguish two biological conditions within each analysis subset, or one target subset versus the pooled background, then rank interpretable features using SHAP importance, patient-level support, model reproducibility, expression signal, and value-SHAP relationship. It supports both **single-cell** and **metacell** analysis units and can use either **XGBoost** or **LightGBM** as the classifier.
+This pipeline is designed to identify features that distinguish two biological conditions within each analysis subset, or one target subset versus the pooled background, then rank interpretable features using SHAP importance, Cross-patient support, model reproducibility, expression signal, and value-SHAP relationship. It supports both **single-cell** and **metacell** analysis units and can use either **XGBoost** or **LightGBM** as the classifier.
 
 At a high level, the workflow:
 
@@ -345,7 +345,7 @@ Model performance and model reproducibility remain iteration-aware. Feature inte
 
 The final ranking incorporates multiple scaled components:
 - `importance_scaled`
-- `patient_level_support_scaled`
+- `cross_patient_support`
 - `model_reproducibility_scaled`
 - `expression_score`
 - `shap_expr_cor_abs_scaled`
@@ -354,7 +354,7 @@ These represent a multi-criteria feature ranking strategy rather than pure SHAP 
 
 ### Meaning of the components
 - **importance**: average feature importance or SHAP-based importance
-- **patient-level support**: a patient-count-aware component; it uses descriptive `bootstrap_support` in low-patient settings and permutation-adjusted p-value evidence when patient count is large enough
+- **Cross-patient support**: a 0-1 patient-block bootstrap retention score that combines support for SHAP importance, Expression signal, and the Value-SHAP relationship
 - **model reproducibility**: reproducibility across repeated subsampling/model fits
 - **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled within-condition expression consistency.
 - **value_shap**: relationship between feature value and SHAP contribution
@@ -393,18 +393,22 @@ The scoring function can:
 
 This makes the ranking more robust and less dependent on one noisy metric.
 
-### Patient-count-aware interpretation
-The current pipeline tracks the smallest patient count across the two conditions:
+### Cross-patient support
+SHAPTURE resamples patients as complete blocks 1,000 times while keeping the final feature list fixed. For condition-vs-condition tasks, patients are resampled separately within each condition and the original number of patient blocks is drawn in each arm. For one-vs-others tasks, patients are resampled globally so all target and background rows from a selected patient remain together.
 
-- if `min_patients < 3`, the run is treated as descriptive only
-- in that setting, `bootstrap_support` is used as the support component
-- if `min_patients >= 3`, permutation-adjusted p-values can be used as the patient-level support component
-- `pval_min_achievable` may be `NA`, which means an exact patient-label permutation floor is not informative for the current patient counts
+Each bootstrap recalculates the same three main evidence streams used in ranking:
 
-This state is written to:
+- scaled mean absolute SHAP importance
+- Expression signal from oriented expression log2FC, oriented detection-rate difference, and within-condition expression consistency
+- Value-SHAP correlation
+
+SHAP importance and Expression signal use the fifth-percentile-to-median retention ratio. Value-SHAP support is the fraction of valid bootstraps that retain the full-data correlation direction and meet `shap_expr_cor_cutoff`. Their equal-weight mean is saved as `cross_patient_support` on its natural 0-1 scale; it is not rescaled across features.
+
+Cross-patient support is available with at least two patients in each condition for condition-vs-condition, or at least two patients in total for one-vs-others. If the minimum is not met, the value remains `NA`, its weight is set to zero, and the other four weights are renormalized. The state and diagnostics are written to:
 
 - `docs/stats_interpretation.csv`
-- `docs/patient_level_support_method_used.csv`
+- `docs/cross_patient_support_method_used.csv`
+- `docs/cross_patient_support_by_feature.csv`
 - `docs/shapture_config_used.csv`
 
 ---
@@ -412,12 +416,12 @@ This state is written to:
 ## Step 10. Produce final ranked marker tables
 For each analyzed subset or one-vs-others target, the pipeline combines per-iteration information into a final ranked result table.
 
-Although the exact write-out code is not visible in the snippet, the script structure strongly indicates outputs such as:
+Each completed analysis task writes:
 - ranked marker tables per analysis task
 - performance summaries
 - fitted values / SHAP summaries
 - interpretation summaries such as `stats_interpretation.csv`
-- patient-level support mode records such as `patient_level_support_method_used.csv`
+- Cross-patient support method and per-feature bootstrap diagnostics
 - a full resolved parameter record in `shapture_config_used.csv`
 - publication-style plots
 
@@ -442,13 +446,13 @@ Expected outputs include:
 - ROC plots
 - score decomposition plots for top features and all retained features
 - support matrix / evidence heatmap plots
-- five-component heatmaps for top features and all retained features
+- five-component heatmaps when Cross-patient support is available, or four-component heatmaps when it is unavailable
 - value-SHAP by-feature plots
 - SHAP effect versus expression log2FC plots
 
 Beeswarm point colors use the preprocessed/scaled feature values that were passed to the model. This keeps `full` and `safe` memory modes consistent and makes the beeswarm reflect what the model saw.
 
-The support matrix summarizes final score, model reproducibility, and patient-level support for the top-ranked retained features. Confidence-interval support is no longer part of the final score or kept figures.
+The support matrix summarizes final score, model reproducibility, and Cross-patient support for the top-ranked retained features. If Cross-patient support is unavailable, its column is omitted rather than shown as zero or a neutral midpoint.
 
 ---
 

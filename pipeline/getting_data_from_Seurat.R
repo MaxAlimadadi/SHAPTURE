@@ -110,7 +110,7 @@ shapture_config_condition_vs_condition <- list(
     SHAP_importance_prior_weight = 0.30,
     expression_signal_prior_weight = 0.30,
     value_SHAP_relationship_prior_weight = 0.20,
-    patient_level_support_prior_weight = 0.10,
+    cross_patient_support_prior_weight = 0.10,
     model_reproducibility_prior_weight = 0.10
   ),
   
@@ -190,7 +190,7 @@ shapture_config_one_vs_others <- list(
     SHAP_importance_prior_weight = 0.30,
     expression_signal_prior_weight = 0.30,
     value_SHAP_relationship_prior_weight = 0.20,
-    patient_level_support_prior_weight = 0.10,
+    cross_patient_support_prior_weight = 0.10,
     model_reproducibility_prior_weight = 0.10
   ),
   

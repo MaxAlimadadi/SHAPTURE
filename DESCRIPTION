@@ -1,6 +1,6 @@
 Package: SHAPTURE
 Title: Sample-Aware SHAP-Based Feature Discovery for Single-Cell and Metacell Data
-Version: 0.0.0.9001
+Version: 0.0.0.9002
 Authors@R: 
     person(given = "Max",
            family = "Alimadadi",
@@ -10,8 +10,8 @@ Author: Max Alimadadi [aut, cre]
 Maintainer: Max Alimadadi <alimadadi.max@gmail.com>
 Description: Provides a sample-aware workflow for subset-specific and
     one-vs-others feature discovery using repeated machine learning fits,
-    SHAP-based interpretation, patient-aware balancing, optional metacell
-    construction, and integrated marker ranking.
+    SHAP-based interpretation, patient-aware balancing, patient-block bootstrap
+    support, optional metacell construction, and integrated marker ranking.
 License: MIT + file LICENSE
 URL: https://github.com/MaxAlimadadi/SHAPTURE
 BugReports: https://github.com/MaxAlimadadi/SHAPTURE/issues
