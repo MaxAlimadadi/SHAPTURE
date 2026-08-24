@@ -66,6 +66,8 @@ The main script defines a set of user-controlled parameters.
 ### Repeated modeling
 - `train_ratio`, `test_ratio`: training and testing fractions
 - `iteration_no`: number of repeated model fits
+- `analysis_seed`: reproducibility root for all stochastic stages; default is
+  `123L`
 - `patient_split_strategy`: `shared_patients` (default) or `unseen_patients`
 - `top_feature_label`: number of features to label in some plots
 - `top_feature_show`: number of top features to display and save for post-analysis plotting
@@ -84,6 +86,19 @@ The main script defines a set of user-controlled parameters.
 `safe` mode writes iteration-level SHAP payloads to temporary disk chunks, rebuilds pooled SHAP summaries one chunk at a time, and deletes the temporary files automatically at the end. It also avoids sending full per-iteration model-fit objects back through parallel workers. It is designed to reduce peak RAM use without changing the final result tables or figures.
 
 Both `full` and `safe` modes use the same interpretation rule: if one cell/metacell is evaluated in multiple held-out test sets, its SHAP values and model-input feature values are averaged before feature-level interpretation summaries are calculated. When a gene was not included in a feature-bagged iteration, that missing cell-gene SHAP value remains missing and is not treated as zero.
+
+### Reproducible random stages
+`analysis_seed` is converted into stable task-specific and stage-specific child
+seeds. Cell/metacell sampling, coverage-aware feature selection, model fitting,
+hard downsampling, metacell construction, and Cross-patient bootstrapping do
+not rely on the ambient R random state. Task seeds are derived from the task
+identity rather than loop position, and iteration seeds are derived directly
+from their iteration number. Therefore, adding a split level or increasing the
+requested iterations does not alter the existing seed plan.
+
+Each successful task saves the complete plan in
+`docs/reproducibility_seeds.csv`. Exact reproduction still requires the same
+input data and row order, package versions, and analysis parameters.
 
 ### Post-analysis plotting
 - Analysis always saves result tables and `docs/visualization_inputs.rds`; figures are made afterward with `pipeline/run_shapture_visualization.R`.

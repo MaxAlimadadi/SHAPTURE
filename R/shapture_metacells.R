@@ -420,8 +420,6 @@ build_grouped_metacells <- function(
     ))
   }
   
-  set.seed(seed)
-  
   group_key <- interaction(
     dataset[[sample_col]],
     dataset[[split_by_col]],
@@ -431,8 +429,16 @@ build_grouped_metacells <- function(
   )
   
   split_idx <- split(seq_len(nrow(dataset)), group_key)
+  group_seeds <- vapply(
+    names(split_idx),
+    function(group_name) derive_shapture_seed(seed, "metacell_group", group_name),
+    integer(1)
+  )
+  work_items <- seq_along(split_idx)
   
-  worker_fun <- function(idx) {
+  worker_fun <- function(group_position) {
+    set.seed(group_seeds[[group_position]])
+    idx <- split_idx[[group_position]]
     .build_one_split_metacell_group(
       idx = idx,
       dataset = dataset,
@@ -452,9 +458,9 @@ build_grouped_metacells <- function(
   }
   
   if (!parallel || length(split_idx) <= 1 || n_cores <= 1) {
-    res_list <- lapply(split_idx, worker_fun)
+    res_list <- lapply(work_items, worker_fun)
   } else if (parallel_backend == "mclapply" && .Platform$OS.type != "windows") {
-    res_list <- parallel::mclapply(split_idx, worker_fun, mc.cores = n_cores)
+    res_list <- parallel::mclapply(work_items, worker_fun, mc.cores = n_cores)
   } else {
     cl <- parallel::makePSOCKcluster(n_cores)
     on.exit(parallel::stopCluster(cl), add = TRUE)
@@ -477,12 +483,14 @@ build_grouped_metacells <- function(
         "n_pcs",
         "aggregation_fun",
         "scale_features",
-        "verbose"
+        "verbose",
+        "split_idx",
+        "group_seeds"
       ),
       envir = environment()
     )
     
-    res_list <- parallel::parLapply(cl, split_idx, worker_fun)
+    res_list <- parallel::parLapply(cl, work_items, worker_fun)
   }
   
   list(

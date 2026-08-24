@@ -59,6 +59,9 @@ shapture_config_full <- list(
   
   # number of repeated train/test/modeling iterations
   iteration_no = 30,
+
+  # reproducibility root; identical data, settings, and seed reproduce all stochastic stages
+  analysis_seed = 123L,
   
   #
   # ---- Ranking and display ----

@@ -113,6 +113,7 @@ shapture_config <- list(
   what_0 = "control",
   what_1 = "disease",
   iteration_no = 30,
+  analysis_seed = 123L,
   top_feature_label = 30,
   top_feature_show = 50,
   feature_min_pct = 0.25,
@@ -149,6 +150,21 @@ For a complete parameter reference, see:
 ```r
 pipeline/shapture_config_full_reference.R
 ```
+
+### Reproducibility
+
+`analysis_seed = 123L` is the default reproducibility root. SHAPTURE derives
+separate deterministic seeds for every task, iteration, cell/metacell split,
+feature subset, model fit, metacell group, balancing step, and Cross-patient
+bootstrap. Existing task seeds do not depend on task order, so adding another
+split level does not change previously selected tasks. Increasing
+`iteration_no` also preserves the seed plan for the earlier iterations.
+
+Keep the same input data and row order, package versions, settings, and
+`analysis_seed` when an analysis must be reproduced exactly. Change
+`analysis_seed` deliberately when running an independent stochastic repeat.
+Every completed task records its complete seed plan in
+`docs/reproducibility_seeds.csv`.
 
 ### Patient train/test strategies
 
@@ -214,6 +230,8 @@ Each analysis task creates a result folder with:
 - `docs/feature_prefilter_summary.csv`: feature filtering summary
 - `docs/sampling_coverage_summary.csv`: held-out cell or metacell coverage
 - `docs/feature_bagging_summary.csv`: gene-subsetting coverage
+- `docs/reproducibility_seeds.csv`: analysis, task, stage, and per-iteration
+  seeds used to reproduce stochastic operations
 - `docs/patient_split_summary.csv`: requested and applied patient split strategy
 - `docs/patient_sampling_coverage_summary.csv`: patient eligibility and rotation
 - `docs/patient_feature_coverage_summary.csv`: held-out patient coverage by gene

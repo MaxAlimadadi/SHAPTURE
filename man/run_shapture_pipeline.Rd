@@ -21,6 +21,7 @@ run_shapture_pipeline(
   train_ratio = 0.7,
   test_ratio = 0.3,
   iteration_no = 30,
+  analysis_seed = 123L,
   top_feature_label = 30,
   top_feature_show = length(what_genes),
   if_adaptive_weights = FALSE,
@@ -94,6 +95,10 @@ one-vs-others mode.}
 \item{test_ratio}{Test fraction.}
 
 \item{iteration_no}{Number of repeated iterations.}
+
+\item{analysis_seed}{Positive integer reproducibility root. The default
+\code{123L} deterministically controls task sampling, feature selection, model
+fitting, metacell construction, and Cross-patient bootstrapping.}
 
 \item{top_feature_label}{Number of labeled features.}
 

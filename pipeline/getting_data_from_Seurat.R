@@ -89,6 +89,9 @@ shapture_config_condition_vs_condition <- list(
   what_0 = data_prep_config$condition_levels[1],
   what_1 = data_prep_config$condition_levels[2],
   iteration_no = 30,
+
+  # reproducibility root; keep the same value to reproduce stochastic stages
+  analysis_seed = 123L,
   
   # number of features to label in scatter-type plots
   top_feature_label = 30,
@@ -169,6 +172,9 @@ shapture_config_one_vs_others <- list(
   
   comparison_mode = "one_vs_others",
   iteration_no = 30,
+
+  # reproducibility root; keep the same value to reproduce stochastic stages
+  analysis_seed = 123L,
   
   # number of features to label in scatter-type plots
   top_feature_label = 30,

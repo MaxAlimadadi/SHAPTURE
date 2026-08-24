@@ -56,6 +56,7 @@ default_shapture_script_config <- function(what_genes) {
     train_ratio = 0.7,
     test_ratio = 0.3,
     iteration_no = 30,
+    analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),
     if_adaptive_weights = FALSE,
@@ -445,6 +446,7 @@ resolve_shapture_script_config <- function(
       config$score_scaling_probs[1] >= config$score_scaling_probs[2]) {
     stop("score_scaling_probs must be two increasing numeric probabilities between 0 and 1.")
   }
+  config$analysis_seed <- validate_analysis_seed(config$analysis_seed)
   config$default_prior_scores_weights <- normalize_score_weights(config$default_prior_scores_weights)
   
   config$group_colors <- validate_color_vector(
@@ -1175,6 +1177,10 @@ filter_features_by_min_pct <- function(
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
+#' @param analysis_seed Positive integer reproducibility root for all stochastic
+#'   task stages.
+#' @param metacell_seed Seed used for grouped metacell construction, or `NA`
+#'   when single cells are analyzed.
 #' @param top_feature_label Number of labeled features.
 #' @param top_feature_show Number of top features to show and save for
 #'   post-analysis plotting.
@@ -1229,6 +1235,8 @@ run_shapture_task <- function(
     train_ratio,
     test_ratio,
     iteration_no,
+    analysis_seed,
+    metacell_seed,
     top_feature_label,
     top_feature_show,
     if_adaptive_weights,
@@ -1251,6 +1259,16 @@ run_shapture_task <- function(
   patient_split_strategy <- match.arg(
     patient_split_strategy,
     c("shared_patients", "unseen_patients")
+  )
+  analysis_seed <- validate_analysis_seed(analysis_seed)
+  seed_plan <- build_shapture_task_seed_plan(
+    analysis_seed = analysis_seed,
+    comparison_mode = comparison_mode,
+    split_by_col = effective_split_by_col,
+    temp_split = temp_split,
+    task_what_0 = task_what_0,
+    task_what_1 = task_what_1,
+    iteration_no = iteration_no
   )
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
@@ -1340,7 +1358,7 @@ run_shapture_task <- function(
         dataset = dataset_task,
         condition_col = "condition",
         balance_col = balance_col,
-        seed = 42
+        seed = seed_plan$balance_seed
       )
     }
   } else if (patient_balance_method == "weighted_sampling") {
@@ -1396,7 +1414,10 @@ run_shapture_task <- function(
   }
   
   top_feature_show_local <- min(top_feature_show, length(what_genes))
-  random_seeds <- sample(1:10000, iteration_no, replace = FALSE)
+  seed_manifest <- seed_plan$iteration_seeds
+  random_seeds <- seed_manifest$cell_sampling_seed
+  feature_selection_seeds <- seed_manifest$feature_selection_seed
+  model_seeds <- seed_manifest$model_seed
   feature_bagging_fraction <- 0.20
   patient_split_strategy_requested <- patient_split_strategy
   patient_split_strategy_used <- "shared_patients"
@@ -1460,7 +1481,7 @@ run_shapture_task <- function(
   if (patient_split_strategy_used == "unseen_patients") {
     feature_plan_res <- build_patient_coverage_aware_feature_plan(
       feature_names = nonzero_feature_cols,
-      random_seeds = random_seeds,
+      random_seeds = feature_selection_seeds,
       test_patient_condition_keys = split_plan_res$test_patient_condition_keys,
       eligible_patient_condition_keys = eligible_patient_condition_keys,
       fraction = feature_bagging_fraction
@@ -1470,7 +1491,7 @@ run_shapture_task <- function(
   } else {
     feature_plan_res <- build_coverage_aware_feature_plan(
       feature_names = nonzero_feature_cols,
-      random_seeds = random_seeds,
+      random_seeds = feature_selection_seeds,
       fraction = feature_bagging_fraction
     )
   }
@@ -1490,6 +1511,9 @@ run_shapture_task <- function(
       temp_split = temp_split,
       task_what_0 = task_what_0,
       task_what_1 = task_what_1,
+      task_seed = seed_plan$task_seed,
+      metacell_seed = metacell_seed,
+      cross_patient_bootstrap_seed = seed_plan$cross_patient_bootstrap_seed,
       patient_split_strategy_requested = patient_split_strategy_requested,
       patient_split_strategy_used = patient_split_strategy_used,
       patient_split_fallback_reason = patient_split_fallback_reason
@@ -1507,6 +1531,20 @@ run_shapture_task <- function(
   
   write.csv(data.frame(included.genes = what_genes), "docs/included.genes.csv", row.names = FALSE)
   write.csv(data.frame(random_seeds = random_seeds), "docs/random_seeds.csv", row.names = FALSE)
+  reproducibility_seeds <- data.frame(
+    analysis_seed = analysis_seed,
+    task_seed = seed_plan$task_seed,
+    balance_seed = seed_plan$balance_seed,
+    metacell_seed = metacell_seed,
+    cross_patient_bootstrap_seed = seed_plan$cross_patient_bootstrap_seed,
+    seed_manifest,
+    check.names = FALSE
+  )
+  write.csv(
+    reproducibility_seeds,
+    "docs/reproducibility_seeds.csv",
+    row.names = FALSE
+  )
   write.csv(sampling_coverage_summary, "docs/sampling_coverage_summary.csv", row.names = FALSE)
   write.csv(feature_bagging_summary, "docs/feature_bagging_summary.csv", row.names = FALSE)
   patient_split_summary <- data.frame(
@@ -1576,6 +1614,7 @@ run_shapture_task <- function(
     worker_stage <- "initializing worker iteration"
     tryCatch({
     temp_random_seed <- random_seeds[temp_iter]
+    model_seed <- model_seeds[temp_iter]
     
     worker_stage <- "preparing train/test data"
     prep_res <- prepare_train_test_data(
@@ -1646,6 +1685,7 @@ run_shapture_task <- function(
     
     if (model_type == "xgboost") {
       worker_stage <- "training xgboost model"
+      set.seed(model_seed)
       dtrain <- xgboost::xgb.DMatrix(data = x_train_mat, label = train_data$condition, weight = train_weights)
       n_cells <- nrow(train_data)
       n_features <- length(feature)
@@ -1658,7 +1698,8 @@ run_shapture_task <- function(
         subsample = ifelse(n_cells < 500, 0.9, 0.8),
         colsample_bytree = ifelse(n_features < 100, 1.0, ifelse(n_features < 2000, 0.5, 0.2)),
         tree_method = ifelse(n_cells > 2000 || n_features > 2000, "hist", "auto"),
-        nthread = 1
+        nthread = 1,
+        seed = model_seed
       )
       xgb_nrounds <- ifelse(n_cells < 500, 20, ifelse(n_cells < 5000, 50, 100))
       fit <- xgboost::xgb.train(params = xgb_params, data = dtrain, nrounds = xgb_nrounds)
@@ -1668,6 +1709,7 @@ run_shapture_task <- function(
       shap_contrib <- predict(fit, dtest, predcontrib = TRUE)
     } else if (model_type == "lightgbm") {
       worker_stage <- "training lightgbm model"
+      set.seed(model_seed)
       dtrain <- lightgbm::lgb.Dataset(data = x_train_mat, label = train_data$condition, weight = train_weights)
       n_cells <- nrow(train_data)
       n_features <- length(feature)
@@ -1682,7 +1724,11 @@ run_shapture_task <- function(
         bagging_fraction = ifelse(n_cells < 500, 0.9, 0.8),
         bagging_freq = 1,
         num_threads = 1,
-        verbosity = -1
+        verbosity = -1,
+        seed = model_seed,
+        bagging_seed = model_seed,
+        feature_fraction_seed = model_seed,
+        data_random_seed = model_seed
       )
       lgb_nrounds <- ifelse(n_cells < 500, 20, ifelse(n_cells < 5000, 50, 100))
       fit <- lightgbm::lgb.train(params = lgb_params, data = dtrain, nrounds = lgb_nrounds)
@@ -2132,7 +2178,7 @@ run_shapture_task <- function(
     score_scaling_method = score_scaling_method,
     score_scaling_probs = score_scaling_probs,
     n_bootstraps = 1000L,
-    seed = 42L
+    seed = seed_plan$cross_patient_bootstrap_seed
   )
   support_match <- match(stats_results$feature, cross_patient_result$support$feature)
   stats_results$cross_patient_support <- cross_patient_result$support$cross_patient_support[support_match]
@@ -2220,6 +2266,7 @@ run_shapture_task <- function(
       cross_patient_support_unavailable_reason = cross_patient_result$reason,
       n_bootstraps_requested = cross_patient_result$n_bootstraps_requested,
       n_bootstraps_valid = cross_patient_result$n_bootstraps_valid_task,
+      cross_patient_bootstrap_seed = seed_plan$cross_patient_bootstrap_seed,
       patient_split_strategy_requested = patient_split_strategy_requested,
       patient_split_strategy_used = patient_split_strategy_used,
       shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
@@ -2288,6 +2335,10 @@ run_shapture_task <- function(
     split_by_col = ifelse(is.null(effective_split_by_col), NA_character_, effective_split_by_col),
     condition_0 = task_what_0,
     condition_1 = task_what_1,
+    analysis_seed = analysis_seed,
+    task_seed = seed_plan$task_seed,
+    metacell_seed = metacell_seed,
+    cross_patient_bootstrap_seed = seed_plan$cross_patient_bootstrap_seed,
     analysis_unit_type = analysis_unit_type,
     model_type = model_type,
     preprocessing_method = preprocessing_method,
@@ -2548,6 +2599,9 @@ run_shapture_task <- function(
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
+#' @param analysis_seed Positive integer reproducibility root. The default
+#'   `123L` deterministically controls task sampling, feature selection, model
+#'   fitting, metacell construction, and Cross-patient bootstrapping.
 #' @param top_feature_label Number of labeled features.
 #' @param top_feature_show Number of top features shown in plots and saved
 #'   for post-analysis visualization.
@@ -2611,6 +2665,7 @@ run_shapture_pipeline <- function(
     train_ratio = 0.7,
     test_ratio = 0.3,
     iteration_no = 30,
+    analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),
     if_adaptive_weights = FALSE,
@@ -2671,6 +2726,7 @@ run_shapture_pipeline <- function(
     patient_split_strategy,
     c("shared_patients", "unseen_patients")
   )
+  analysis_seed <- validate_analysis_seed(analysis_seed)
   score_scaling_method <- match.arg(score_scaling_method)
   if (!is.numeric(feature_min_pct) ||
       length(feature_min_pct) != 1 ||
@@ -2751,6 +2807,7 @@ run_shapture_pipeline <- function(
     train_ratio = train_ratio,
     test_ratio = test_ratio,
     iteration_no = iteration_no,
+    analysis_seed = analysis_seed,
     top_feature_label = top_feature_label,
     top_feature_show = top_feature_show,
     if_adaptive_weights = if_adaptive_weights,
@@ -2818,6 +2875,17 @@ run_shapture_pipeline <- function(
   }
   
   dataset_all_metacell <- dataset_all_work
+  metacell_seed <- if (analysis_unit_type == "metacell") {
+    derive_shapture_seed(
+      analysis_seed,
+      "metacell_construction",
+      comparison_mode,
+      split_by_col,
+      sort(as.character(subset_levels %||% "<ALL>"))
+    )
+  } else {
+    NA_integer_
+  }
   if (analysis_unit_type == "metacell") {
     metacell_res <- build_grouped_metacells(
       dataset = dataset_all_metacell,
@@ -2833,7 +2901,7 @@ run_shapture_pipeline <- function(
       n_pcs = metacell_n_pcs,
       aggregation_fun = metacell_aggregation_fun,
       scale_features = TRUE,
-      seed = 42,
+      seed = metacell_seed,
       verbose = TRUE,
       parallel = parallel_metacells,
       n_cores = metacell_n_cores,
@@ -2890,6 +2958,8 @@ run_shapture_pipeline <- function(
       train_ratio = train_ratio,
       test_ratio = test_ratio,
       iteration_no = iteration_no,
+      analysis_seed = analysis_seed,
+      metacell_seed = metacell_seed,
       top_feature_label = top_feature_label,
       top_feature_show = top_feature_show,
       if_adaptive_weights = if_adaptive_weights,

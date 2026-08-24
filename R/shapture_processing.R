@@ -1,3 +1,161 @@
+#' Validate the SHAPTURE analysis seed
+#'
+#' @param analysis_seed Positive integer used as the reproducibility root.
+#'
+#' @return The validated integer seed.
+#' @keywords internal
+#' @noRd
+validate_analysis_seed <- function(analysis_seed) {
+  if (!is.numeric(analysis_seed) || length(analysis_seed) != 1L ||
+      !is.finite(analysis_seed) || analysis_seed < 1 ||
+      analysis_seed != floor(analysis_seed) || analysis_seed > 999999999) {
+    stop("analysis_seed must be one whole number between 1 and 999999999.")
+  }
+
+  as.integer(analysis_seed)
+}
+
+
+#' Derive a stable child seed from an analysis seed
+#'
+#' Uses a small platform-independent string hash so seed assignment depends on
+#' stable task and stage identifiers, not task order or parallel scheduling.
+#'
+#' @param analysis_seed Positive integer reproducibility root.
+#' @param ... Values that uniquely identify the task or stochastic stage.
+#'
+#' @return A positive integer suitable for `set.seed()` and model backends.
+#' @keywords internal
+#' @noRd
+derive_shapture_seed <- function(analysis_seed, ...) {
+  analysis_seed <- validate_analysis_seed(analysis_seed)
+  seed_parts <- list(...)
+  serialize_part <- function(x) {
+    if (is.null(x)) {
+      return("<NULL>")
+    }
+    x <- as.character(x)
+    x[is.na(x)] <- "<NA>"
+    paste(x, collapse = "\u001e")
+  }
+  key <- paste(
+    c(as.character(analysis_seed), vapply(seed_parts, serialize_part, character(1))),
+    collapse = "\u001f"
+  )
+
+  # Keep child seeds below one billion so existing stage-specific offsets
+  # cannot overflow R's integer seed range.
+  modulus <- 999999937
+  hash <- as.double(analysis_seed %% modulus)
+  for (code in utf8ToInt(enc2utf8(key))) {
+    hash <- (hash * 131 + code) %% modulus
+  }
+  for (mix_round in seq_len(3L)) {
+    hash <- (hash * 48271 + 12820163 + mix_round) %% modulus
+  }
+
+  as.integer(hash + 1)
+}
+
+
+#' Derive a stable non-repeating seed sequence
+#'
+#' @param root_seed Positive integer seed for the task or analysis.
+#' @param stage Stable stochastic-stage label.
+#' @param n Number of seeds to generate.
+#'
+#' @return Integer vector of length `n`.
+#' @keywords internal
+#' @noRd
+derive_shapture_seed_sequence <- function(root_seed, stage, n) {
+  root_seed <- validate_analysis_seed(root_seed)
+  if (!is.numeric(n) || length(n) != 1L || !is.finite(n) ||
+      n < 1 || n != floor(n) || n > 999999937) {
+    stop("n must be one whole number between 1 and 999999937.")
+  }
+  n <- as.integer(n)
+  modulus <- 999999937
+  current <- as.double(derive_shapture_seed(root_seed, stage, "start") - 1L)
+  stride <- as.double(
+    (derive_shapture_seed(root_seed, stage, "stride") - 1L) %%
+      (modulus - 1) + 1L
+  )
+  out <- integer(n)
+  for (i in seq_len(n)) {
+    out[[i]] <- as.integer(current + 1)
+    current <- (current + stride) %% modulus
+  }
+  out
+}
+
+
+#' Build the deterministic seed plan for one SHAPTURE task
+#'
+#' @param analysis_seed Positive integer reproducibility root.
+#' @param comparison_mode Comparison mode.
+#' @param split_by_col Split-defining column or `NULL`.
+#' @param temp_split Current task level.
+#' @param task_what_0 Negative/reference label.
+#' @param task_what_1 Positive/target label.
+#' @param iteration_no Number of model iterations.
+#'
+#' @return A list containing task-stage seeds and an iteration seed table.
+#' @keywords internal
+#' @noRd
+build_shapture_task_seed_plan <- function(
+    analysis_seed,
+    comparison_mode,
+    split_by_col,
+    temp_split,
+    task_what_0,
+    task_what_1,
+    iteration_no
+) {
+  analysis_seed <- validate_analysis_seed(analysis_seed)
+  if (!is.numeric(iteration_no) || length(iteration_no) != 1L ||
+      !is.finite(iteration_no) || iteration_no < 1 ||
+      iteration_no != floor(iteration_no)) {
+    stop("iteration_no must be one positive whole number.")
+  }
+  iteration_no <- as.integer(iteration_no)
+
+  task_seed <- derive_shapture_seed(
+    analysis_seed,
+    "task",
+    comparison_mode,
+    split_by_col,
+    temp_split,
+    task_what_0,
+    task_what_1
+  )
+  iteration <- seq_len(iteration_no)
+  iteration_seeds <- data.frame(
+    iteration = iteration,
+    cell_sampling_seed = derive_shapture_seed_sequence(
+      task_seed, "cell_sampling", iteration_no
+    ),
+    feature_selection_seed = derive_shapture_seed_sequence(
+      task_seed, "feature_selection", iteration_no
+    ),
+    model_seed = derive_shapture_seed_sequence(
+      task_seed, "model", iteration_no
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  list(
+    analysis_seed = analysis_seed,
+    task_seed = task_seed,
+    balance_seed = derive_shapture_seed(task_seed, "patient_balance"),
+    cross_patient_bootstrap_seed = derive_shapture_seed(
+      task_seed,
+      "cross_patient_bootstrap"
+    ),
+    iteration_seeds = iteration_seeds
+  )
+}
+
+
 #' Prepare balanced train/test splits for SHAPTURE
 #'
 #' Creates balanced binary train/test splits while preserving optional metadata

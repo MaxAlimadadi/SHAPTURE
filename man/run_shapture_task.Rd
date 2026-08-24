@@ -23,6 +23,8 @@ run_shapture_task(
   train_ratio,
   test_ratio,
   iteration_no,
+  analysis_seed,
+  metacell_seed,
   top_feature_label,
   top_feature_show,
   if_adaptive_weights,
@@ -79,6 +81,12 @@ one-vs-others mode.}
 \item{test_ratio}{Test fraction.}
 
 \item{iteration_no}{Number of repeated iterations.}
+
+\item{analysis_seed}{Positive integer reproducibility root for all stochastic
+task stages.}
+
+\item{metacell_seed}{Seed used for grouped metacell construction, or \code{NA}
+when single cells are analyzed.}
 
 \item{top_feature_label}{Number of labeled features.}
 
