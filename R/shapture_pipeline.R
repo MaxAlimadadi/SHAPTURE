@@ -56,6 +56,8 @@ default_shapture_script_config <- function(what_genes) {
     train_ratio = 0.7,
     test_ratio = 0.3,
     iteration_no = 30,
+    gene_fraction_per_iteration = 0.20,
+    cross_patient_bootstraps = 1000L,
     analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),
@@ -1177,6 +1179,10 @@ filter_features_by_min_pct <- function(
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
+#' @param gene_fraction_per_iteration Fraction of task features included in
+#'   each coverage-aware model iteration.
+#' @param cross_patient_bootstraps Number of patient-block bootstrap replicates
+#'   used for Cross-patient Support.
 #' @param analysis_seed Positive integer reproducibility root for all stochastic
 #'   task stages.
 #' @param metacell_seed Seed used for grouped metacell construction, or `NA`
@@ -1235,6 +1241,8 @@ run_shapture_task <- function(
     train_ratio,
     test_ratio,
     iteration_no,
+    gene_fraction_per_iteration,
+    cross_patient_bootstraps,
     analysis_seed,
     metacell_seed,
     top_feature_label,
@@ -1418,7 +1426,7 @@ run_shapture_task <- function(
   random_seeds <- seed_manifest$cell_sampling_seed
   feature_selection_seeds <- seed_manifest$feature_selection_seed
   model_seeds <- seed_manifest$model_seed
-  feature_bagging_fraction <- 0.20
+  feature_bagging_fraction <- gene_fraction_per_iteration
   patient_split_strategy_requested <- patient_split_strategy
   patient_split_strategy_used <- "shared_patients"
   patient_split_fallback_reason <- NA_character_
@@ -1589,7 +1597,8 @@ run_shapture_task <- function(
   
   worker_exports <- c(
     "prepare_train_test_data",
-    "compute_model_weights_by_group"
+    "compute_model_weights_by_group",
+    "compute_patient_balanced_shap_effect"
   )
   worker_export_env <- environment()
   missing_worker_exports <- worker_exports[!vapply(
@@ -1794,16 +1803,60 @@ run_shapture_task <- function(
     )))
     row.names(model_performance) <- temp_iter
     
+    iteration_importance <- colMeans(abs(shap_values), na.rm = TRUE)
+    total_iteration_importance <- sum(iteration_importance, na.rm = TRUE)
+    relative_importance <- if (is.finite(total_iteration_importance) &&
+        total_iteration_importance > 0) {
+      iteration_importance / total_iteration_importance
+    } else {
+      stats::setNames(rep(0, length(iteration_importance)), names(iteration_importance))
+    }
     importance_data <- data.frame(
       iteration = temp_iter,
       feature = colnames(shap_values),
-      `average|SHAP value|` = colMeans(abs(shap_values), na.rm = TRUE),
+      `average|SHAP value|` = iteration_importance,
       check.names = FALSE
     )
     
     mean_shap_0 <- colMeans(shap_values[test_data$condition == 0, , drop = FALSE])
     mean_shap_1 <- colMeans(shap_values[test_data$condition == 1, , drop = FALSE])
     delta_shap <- mean_shap_1 - mean_shap_0
+    patient_delta <- compute_patient_balanced_shap_effect(
+      shap_matrix = shap_values,
+      metadata = test_data[, c("sample_id", "condition"), drop = FALSE],
+      sample_col = "sample_id",
+      condition_col = "condition"
+    )
+    patient_delta_values <- stats::setNames(
+      patient_delta$effect_size,
+      patient_delta$feature
+    )
+    value_shap_cor_iteration <- vapply(feature, function(feature_name) {
+      feature_values <- as.numeric(test_data[[feature_name]])
+      feature_shap <- as.numeric(shap_values[, feature_name])
+      valid <- is.finite(feature_values) & is.finite(feature_shap)
+      if (sum(valid) < 3L ||
+          length(unique(feature_values[valid])) < 2L ||
+          length(unique(feature_shap[valid])) < 2L) {
+        return(NA_real_)
+      }
+      suppressWarnings(stats::cor(
+        feature_values[valid],
+        feature_shap[valid],
+        method = "spearman"
+      ))
+    }, numeric(1))
+    model_reproducibility_iteration <- data.frame(
+      iteration = temp_iter,
+      feature = feature,
+      relative_importance = relative_importance[feature],
+      delta_shap = patient_delta_values[feature],
+      relative_delta_shap = abs(patient_delta_values[feature]) /
+        max(total_iteration_importance, .Machine$double.eps),
+      value_shap_cor = value_shap_cor_iteration[feature],
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
     
     if (memory_mode == "safe") {
       worker_stage <- "writing safe-mode iteration chunk"
@@ -1834,6 +1887,7 @@ run_shapture_task <- function(
         model_performance = model_performance,
         importance_data = importance_data,
         delta_shap = delta_shap,
+        model_reproducibility_iteration = model_reproducibility_iteration,
         chunk_file = chunk_file
       ))
     }
@@ -1854,7 +1908,8 @@ run_shapture_task <- function(
       shp_X_unscaled = as.data.frame(prep_res$test_raw[, feature, drop = FALSE], check.names = FALSE),
       test_data = test_data,
       baseline = baseline_value,
-      delta_shap = delta_shap
+      delta_shap = delta_shap,
+      model_reproducibility_iteration = model_reproducibility_iteration
     )
     }, error = function(e) {
       call_txt <- paste(deparse(conditionCall(e)), collapse = " ")
@@ -1886,6 +1941,10 @@ run_shapture_task <- function(
   AUC_all <- do.call(rbind, lapply(iter_results, `[[`, "auc_table"))
   model_performance_all <- do.call(rbind, lapply(iter_results, `[[`, "model_performance"))
   importance_data_all <- do.call(rbind, lapply(iter_results, `[[`, "importance_data"))
+  model_reproducibility_iteration_all <- do.call(
+    rbind,
+    lapply(iter_results, `[[`, "model_reproducibility_iteration")
+  )
   if (memory_mode == "full") {
     shp_S <- rbind_feature_matrices(lapply(iter_results, `[[`, "shp_S"), nonzero_feature_cols)
     shp_X <- as.data.frame(
@@ -2122,6 +2181,44 @@ run_shapture_task <- function(
   }
   stats_results$shap_expr_cor <- shap_expr_cor[stats_results$feature]
   stats_results$shap_expr_cor_abs <- shap_expr_cor_abs[stats_results$feature]
+
+  model_reproducibility_result <- compute_model_reproducibility(
+    iteration_data = model_reproducibility_iteration_all,
+    full_stats = stats_results,
+    shap_expr_cor_cutoff = shap_expr_cor_cutoff,
+    lower_probability = 0.10
+  )
+  reproducibility_match <- match(
+    stats_results$feature,
+    model_reproducibility_result$feature
+  )
+  if (anyNA(reproducibility_match)) {
+    stop("Model reproducibility did not cover every modeled feature in ", temp_split, ".")
+  }
+  stats_results$legacy_delta_direction_stability <- stats_results$stability
+  stats_results$model_reproducibility <- model_reproducibility_result$model_reproducibility[
+    reproducibility_match
+  ]
+  stats_results$stability <- stats_results$model_reproducibility
+  reproducibility_columns <- setdiff(
+    colnames(model_reproducibility_result),
+    c("feature", "model_reproducibility")
+  )
+  stats_results[, reproducibility_columns] <- model_reproducibility_result[
+    reproducibility_match,
+    reproducibility_columns,
+    drop = FALSE
+  ]
+  write.csv(
+    model_reproducibility_result,
+    "docs/model_reproducibility_by_feature.csv",
+    row.names = FALSE
+  )
+  write.csv(
+    model_reproducibility_iteration_all,
+    "docs/model_reproducibility_by_iteration.csv",
+    row.names = FALSE
+  )
   
   n_features_before_direction_filter <- nrow(stats_results)
   if (shap_expr_cor_direction_filter == "positive") {
@@ -2177,7 +2274,7 @@ run_shapture_task <- function(
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
     score_scaling_method = score_scaling_method,
     score_scaling_probs = score_scaling_probs,
-    n_bootstraps = 1000L,
+    n_bootstraps = cross_patient_bootstraps,
     seed = seed_plan$cross_patient_bootstrap_seed
   )
   support_match <- match(stats_results$feature, cross_patient_result$support$feature)
@@ -2599,6 +2696,10 @@ run_shapture_task <- function(
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
+#' @param gene_fraction_per_iteration Fraction of task features included in
+#'   each coverage-aware model iteration. The default is `0.20`.
+#' @param cross_patient_bootstraps Number of patient-block bootstrap replicates
+#'   used for Cross-patient Support. The default is `1000L`.
 #' @param analysis_seed Positive integer reproducibility root. The default
 #'   `123L` deterministically controls task sampling, feature selection, model
 #'   fitting, metacell construction, and Cross-patient bootstrapping.
@@ -2665,6 +2766,8 @@ run_shapture_pipeline <- function(
     train_ratio = 0.7,
     test_ratio = 0.3,
     iteration_no = 30,
+    gene_fraction_per_iteration = 0.20,
+    cross_patient_bootstraps = 1000L,
     analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),
@@ -2728,6 +2831,21 @@ run_shapture_pipeline <- function(
   )
   analysis_seed <- validate_analysis_seed(analysis_seed)
   score_scaling_method <- match.arg(score_scaling_method)
+  if (!is.numeric(gene_fraction_per_iteration) ||
+      length(gene_fraction_per_iteration) != 1L ||
+      !is.finite(gene_fraction_per_iteration) ||
+      gene_fraction_per_iteration <= 0 ||
+      gene_fraction_per_iteration > 1) {
+    stop("gene_fraction_per_iteration must be one finite value greater than 0 and at most 1.")
+  }
+  if (!is.numeric(cross_patient_bootstraps) ||
+      length(cross_patient_bootstraps) != 1L ||
+      !is.finite(cross_patient_bootstraps) ||
+      cross_patient_bootstraps < 1 ||
+      cross_patient_bootstraps != floor(cross_patient_bootstraps)) {
+    stop("cross_patient_bootstraps must be one positive whole number.")
+  }
+  cross_patient_bootstraps <- as.integer(cross_patient_bootstraps)
   if (!is.numeric(feature_min_pct) ||
       length(feature_min_pct) != 1 ||
       is.na(feature_min_pct) ||
@@ -2807,6 +2925,8 @@ run_shapture_pipeline <- function(
     train_ratio = train_ratio,
     test_ratio = test_ratio,
     iteration_no = iteration_no,
+    gene_fraction_per_iteration = gene_fraction_per_iteration,
+    cross_patient_bootstraps = cross_patient_bootstraps,
     analysis_seed = analysis_seed,
     top_feature_label = top_feature_label,
     top_feature_show = top_feature_show,
@@ -2958,6 +3078,8 @@ run_shapture_pipeline <- function(
       train_ratio = train_ratio,
       test_ratio = test_ratio,
       iteration_no = iteration_no,
+      gene_fraction_per_iteration = gene_fraction_per_iteration,
+      cross_patient_bootstraps = cross_patient_bootstraps,
       analysis_seed = analysis_seed,
       metacell_seed = metacell_seed,
       top_feature_label = top_feature_label,

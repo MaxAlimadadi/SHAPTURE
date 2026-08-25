@@ -101,6 +101,216 @@ compute_bootstrap_retention <- function(values, zero_tolerance = 1e-8) {
 }
 
 
+#' Compute Model reproducibility across repeated model fits
+#'
+#' Summarizes how consistently a feature retains SHAP importance, signed
+#' condition-level SHAP separation, and its value-SHAP relationship across
+#' feature-bagged model iterations.
+#'
+#' @param iteration_data Long data frame containing one row per included
+#'   feature and model iteration.
+#' @param full_stats Full-analysis feature statistics containing `feature`,
+#'   `effect_size`, and `shap_expr_cor`.
+#' @param shap_expr_cor_cutoff Minimum absolute per-iteration value-SHAP
+#'   correlation counted as retained.
+#' @param lower_probability Lower quantile used for magnitude retention.
+#' @param zero_tolerance Positive values at or below this tolerance are treated
+#'   as zero importance.
+#'
+#' @return Data frame with one bounded Model reproducibility score and its
+#'   three subcomponent diagnostics per feature.
+#' @keywords internal
+compute_model_reproducibility <- function(
+    iteration_data,
+    full_stats,
+    shap_expr_cor_cutoff,
+    lower_probability = 0.10,
+    zero_tolerance = 1e-8
+) {
+  required_iteration_columns <- c(
+    "iteration", "feature", "relative_importance", "relative_delta_shap",
+    "delta_shap", "value_shap_cor"
+  )
+  missing_iteration_columns <- setdiff(
+    required_iteration_columns,
+    colnames(iteration_data)
+  )
+  if (length(missing_iteration_columns) > 0L) {
+    stop(
+      "Missing Model reproducibility iteration columns: ",
+      paste(missing_iteration_columns, collapse = ", ")
+    )
+  }
+  required_full_columns <- c("feature", "effect_size", "shap_expr_cor")
+  missing_full_columns <- setdiff(required_full_columns, colnames(full_stats))
+  if (length(missing_full_columns) > 0L) {
+    stop(
+      "Missing full-analysis Model reproducibility columns: ",
+      paste(missing_full_columns, collapse = ", ")
+    )
+  }
+  if (!is.numeric(shap_expr_cor_cutoff) ||
+      length(shap_expr_cor_cutoff) != 1L ||
+      !is.finite(shap_expr_cor_cutoff) ||
+      shap_expr_cor_cutoff < 0 ||
+      shap_expr_cor_cutoff > 1) {
+    stop("shap_expr_cor_cutoff must be one finite value between 0 and 1.")
+  }
+  if (!is.numeric(lower_probability) ||
+      length(lower_probability) != 1L ||
+      !is.finite(lower_probability) ||
+      lower_probability <= 0 ||
+      lower_probability >= 0.5) {
+    stop("lower_probability must be one finite value greater than 0 and less than 0.5.")
+  }
+
+  clamp01 <- function(x) pmin(1, pmax(0, x))
+
+  magnitude_retention <- function(values) {
+    values <- values[is.finite(values) & values >= 0]
+    if (length(values) == 0L) {
+      return(c(support = 0, median = NA_real_, lower = NA_real_))
+    }
+    value_median <- stats::median(values)
+    value_lower <- as.numeric(stats::quantile(
+      values,
+      probs = lower_probability,
+      names = FALSE,
+      na.rm = TRUE,
+      type = 7
+    ))
+    support <- if (!is.finite(value_median) || value_median <= zero_tolerance) {
+      0
+    } else {
+      clamp01(value_lower / value_median)
+    }
+    c(support = support, median = value_median, lower = value_lower)
+  }
+
+  smoother_importance_retention <- function(values) {
+    values <- values[is.finite(values) & values >= 0]
+    n_valid <- length(values)
+    positive_values <- values[values > zero_tolerance]
+    n_positive <- length(positive_values)
+    nonzero_frequency <- if (n_valid > 0L) n_positive / n_valid else 0
+    positive_retention <- magnitude_retention(positive_values)
+    c(
+      support = clamp01(nonzero_frequency * positive_retention["support"]),
+      nonzero_frequency = nonzero_frequency,
+      positive_median = positive_retention["median"],
+      positive_lower = positive_retention["lower"],
+      positive_retention = positive_retention["support"],
+      n_positive = n_positive
+    )
+  }
+
+  split_iterations <- split(
+    iteration_data,
+    as.character(iteration_data$feature),
+    drop = TRUE
+  )
+  feature_results <- lapply(seq_len(nrow(full_stats)), function(feature_index) {
+    feature_name <- as.character(full_stats$feature[feature_index])
+    feature_iterations <- split_iterations[[feature_name]]
+    if (is.null(feature_iterations) || nrow(feature_iterations) == 0L) {
+      return(data.frame(
+        feature = feature_name,
+        model_reproducibility = 0,
+        model_shap_importance_retention = 0,
+        model_shap_importance_nonzero_frequency = 0,
+        model_shap_importance_positive_median = NA_real_,
+        model_shap_importance_positive_q10 = NA_real_,
+        model_shap_importance_positive_retention = 0,
+        positive_importance_iterations = 0L,
+        delta_shap_direction_retention = 0,
+        delta_shap_magnitude_retention = 0,
+        delta_shap_magnitude_median = NA_real_,
+        delta_shap_magnitude_q10 = NA_real_,
+        delta_shap_retention = 0,
+        value_shap_retention = 0,
+        valid_model_iterations = 0L,
+        direction_matching_iterations = 0L,
+        valid_delta_shap_iterations = 0L,
+        value_shap_supporting_iterations = 0L,
+        valid_value_shap_iterations = 0L,
+        invalid_value_shap_iterations = 0L,
+        full_effect_direction = sign(full_stats$effect_size[feature_index]),
+        full_value_shap_direction = sign(full_stats$shap_expr_cor[feature_index]),
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    importance_retention <- smoother_importance_retention(
+      feature_iterations$relative_importance
+    )
+
+    reference_delta_sign <- sign(full_stats$effect_size[feature_index])
+    valid_delta <- is.finite(feature_iterations$delta_shap)
+    delta_matches <- valid_delta &
+      reference_delta_sign != 0 &
+      sign(feature_iterations$delta_shap) == reference_delta_sign
+    delta_direction_retention <- if (any(valid_delta)) {
+      sum(delta_matches) / sum(valid_delta)
+    } else {
+      0
+    }
+    delta_magnitude_retention <- magnitude_retention(
+      feature_iterations$relative_delta_shap[delta_matches]
+    )
+    delta_retention <- clamp01(
+      delta_direction_retention * delta_magnitude_retention["support"]
+    )
+
+    reference_cor_sign <- sign(full_stats$shap_expr_cor[feature_index])
+    valid_cor <- is.finite(feature_iterations$value_shap_cor)
+    value_matches <- valid_cor &
+      reference_cor_sign != 0 &
+      sign(feature_iterations$value_shap_cor) == reference_cor_sign &
+      abs(feature_iterations$value_shap_cor) >= shap_expr_cor_cutoff
+    value_retention <- if (any(valid_cor)) {
+      sum(value_matches) / sum(valid_cor)
+    } else {
+      0
+    }
+
+    model_reproducibility <- mean(c(
+      importance_retention["support"],
+      delta_retention,
+      value_retention
+    ))
+
+    data.frame(
+      feature = feature_name,
+      model_reproducibility = unname(clamp01(model_reproducibility)),
+      model_shap_importance_retention = unname(importance_retention["support"]),
+      model_shap_importance_nonzero_frequency = unname(importance_retention["nonzero_frequency"]),
+      model_shap_importance_positive_median = unname(importance_retention["positive_median"]),
+      model_shap_importance_positive_q10 = unname(importance_retention["positive_lower"]),
+      model_shap_importance_positive_retention = unname(importance_retention["positive_retention"]),
+      positive_importance_iterations = as.integer(importance_retention["n_positive"]),
+      delta_shap_direction_retention = unname(delta_direction_retention),
+      delta_shap_magnitude_retention = unname(delta_magnitude_retention["support"]),
+      delta_shap_magnitude_median = unname(delta_magnitude_retention["median"]),
+      delta_shap_magnitude_q10 = unname(delta_magnitude_retention["lower"]),
+      delta_shap_retention = unname(delta_retention),
+      value_shap_retention = unname(clamp01(value_retention)),
+      valid_model_iterations = nrow(feature_iterations),
+      direction_matching_iterations = sum(delta_matches),
+      valid_delta_shap_iterations = sum(valid_delta),
+      value_shap_supporting_iterations = sum(value_matches),
+      valid_value_shap_iterations = sum(valid_cor),
+      invalid_value_shap_iterations = sum(!valid_cor),
+      full_effect_direction = reference_delta_sign,
+      full_value_shap_direction = reference_cor_sign,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  })
+
+  do.call(rbind, feature_results)
+}
+
+
 #' Compute Cross-patient support by patient-block bootstrap
 #'
 #' Patient blocks are resampled with replacement. SHAP importance, Expression

@@ -75,7 +75,7 @@ build_dataset_from_seurat <- function(
   
   dataset_all <- data.frame(
     meta_df,
-    t(assay_mat[genes, , drop = FALSE]),
+    Matrix::t(assay_mat[genes, , drop = FALSE]),
     check.names = FALSE
   )
   

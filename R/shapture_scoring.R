@@ -489,7 +489,17 @@ compute_combined_shap_ranking <- function(
     combined$cross_patient_support[] <- NA_real_
   }
   
-  combined$model_reproducibility_scaled <- safe_rescale(combined$stability)
+  model_reproducibility <- if ("model_reproducibility" %in% colnames(combined)) {
+    combined$model_reproducibility
+  } else {
+    combined$stability
+  }
+  if (any(!is.finite(model_reproducibility)) ||
+      any(model_reproducibility < 0 | model_reproducibility > 1)) {
+    stop("Model reproducibility must contain finite values from 0 to 1.")
+  }
+  combined$model_reproducibility <- model_reproducibility
+  combined$model_reproducibility_scaled <- model_reproducibility
   combined$effect_abs <- abs(combined$effect_size)
   combined$expression_log2FC_abs <- abs(combined$expression_log2FC)
   combined$expression_log2FC_abs_scaled <- safe_rescale(combined$expression_log2FC_abs)
@@ -568,13 +578,15 @@ compute_combined_shap_ranking <- function(
   combined$weight_expression <- w_vec["w_expression"]
   combined$weight_value_shap <- w_vec["w_value_shap"]
   
+  cross_patient_contribution <- rep(0, nrow(combined))
+  if (cross_patient_support_available) {
+    cross_patient_contribution <-
+      w_vec["w_cross_patient_support"] * combined$cross_patient_support
+  }
+
   combined$final_score <-
     w_vec["w_importance"] * combined$importance_scaled +
-    ifelse(
-      cross_patient_support_available,
-      w_vec["w_cross_patient_support"] * combined$cross_patient_support,
-      0
-    ) +
+    cross_patient_contribution +
     w_vec["w_model_reproducibility"] * combined$model_reproducibility_scaled +
     w_vec["w_expression"] * combined$expression_score +
     w_vec["w_value_shap"] * combined$shap_expr_cor_abs_scaled

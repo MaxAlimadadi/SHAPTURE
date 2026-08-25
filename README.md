@@ -42,12 +42,18 @@ to a 0-1 score, and averaged with equal condition weight. This calculation uses
 the original cells even when metacells are used for model fitting.
 
 Cross-patient support asks whether the three main evidence streams persist when
-patients are resampled as complete blocks. SHAPTURE runs 1,000 patient-block
-bootstraps, recalculates SHAP importance, Expression signal, and the Value-SHAP
-relationship for the fixed retained feature set, and combines their 0-1
-retention measures with equal weight. If there are too few patients, this
+patients are resampled as complete blocks. By default, SHAPTURE runs 1,000
+patient-block bootstraps, recalculates SHAP importance, Expression signal, and
+the Value-SHAP relationship for the fixed retained feature set, and combines
+their 0-1 retention measures with equal weight. The number of replicates is
+controlled by `cross_patient_bootstraps`. If there are too few patients, this
 component is left unavailable and the remaining four score weights are
 renormalized.
+
+Model reproducibility is calculated across repeated model fits from three
+equally weighted measurements: recurrence-adjusted SHAP-importance retention,
+signed delta-SHAP retention, and Value-SHAP direction-and-threshold retention.
+Its natural 0-1 score enters the final ranking without across-feature rescaling.
 
 The goal is a ranked marker table that is useful for biological follow-up, not
 just a model accuracy report.
@@ -113,6 +119,8 @@ shapture_config <- list(
   what_0 = "control",
   what_1 = "disease",
   iteration_no = 30,
+  gene_fraction_per_iteration = 0.20,
+  cross_patient_bootstraps = 1000L,
   analysis_seed = 123L,
   top_feature_label = 30,
   top_feature_show = 50,

@@ -23,6 +23,8 @@ run_shapture_task(
   train_ratio,
   test_ratio,
   iteration_no,
+  gene_fraction_per_iteration,
+  cross_patient_bootstraps,
   analysis_seed,
   metacell_seed,
   top_feature_label,
@@ -81,6 +83,12 @@ one-vs-others mode.}
 \item{test_ratio}{Test fraction.}
 
 \item{iteration_no}{Number of repeated iterations.}
+
+\item{gene_fraction_per_iteration}{Fraction of task features included in
+each coverage-aware model iteration.}
+
+\item{cross_patient_bootstraps}{Number of patient-block bootstrap replicates
+used for Cross-patient Support.}
 
 \item{analysis_seed}{Positive integer reproducibility root for all stochastic
 task stages.}

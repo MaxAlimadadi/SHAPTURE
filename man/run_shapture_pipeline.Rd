@@ -21,6 +21,8 @@ run_shapture_pipeline(
   train_ratio = 0.7,
   test_ratio = 0.3,
   iteration_no = 30,
+  gene_fraction_per_iteration = 0.2,
+  cross_patient_bootstraps = 1000L,
   analysis_seed = 123L,
   top_feature_label = 30,
   top_feature_show = length(what_genes),
@@ -95,6 +97,12 @@ one-vs-others mode.}
 \item{test_ratio}{Test fraction.}
 
 \item{iteration_no}{Number of repeated iterations.}
+
+\item{gene_fraction_per_iteration}{Fraction of task features included in
+each coverage-aware model iteration. The default is \code{0.20}.}
+
+\item{cross_patient_bootstraps}{Number of patient-block bootstrap replicates
+used for Cross-patient Support. The default is \code{1000L}.}
 
 \item{analysis_seed}{Positive integer reproducibility root. The default
 \code{123L} deterministically controls task sampling, feature selection, model

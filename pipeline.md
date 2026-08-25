@@ -66,6 +66,10 @@ The main script defines a set of user-controlled parameters.
 ### Repeated modeling
 - `train_ratio`, `test_ratio`: training and testing fractions
 - `iteration_no`: number of repeated model fits
+- `gene_fraction_per_iteration`: fraction of filtered candidate features used
+  in each coverage-aware model fit; default is `0.20`
+- `cross_patient_bootstraps`: number of patient-block bootstrap replicates used
+  for Cross-patient Support; default is `1000L`
 - `analysis_seed`: reproducibility root for all stochastic stages; default is
   `123L`
 - `patient_split_strategy`: `shared_patients` (default) or `unseen_patients`
@@ -284,7 +288,11 @@ The requested and applied strategy is saved to
 `docs/patient_split_summary.csv`. Patient eligibility and rotation are saved to
 `docs/patient_sampling_coverage_summary.csv`.
 
-After feature filtering, SHAPTURE also builds a coverage-aware gene-subset plan. Each iteration uses 20% of the candidate genes, and genes with the fewest previous inclusions are prioritized for the next iteration. The gene coverage summary is saved as `docs/feature_bagging_summary.csv`.
+After feature filtering, SHAPTURE also builds a coverage-aware gene-subset plan.
+Each iteration uses the fraction specified by `gene_fraction_per_iteration`
+(default `0.20`), and genes with the fewest previous inclusions are prioritized
+for the next iteration. The gene coverage summary is saved as
+`docs/feature_bagging_summary.csv`.
 
 For unseen-patient tasks, feature selection is coordinated with the current
 held-out patients. Genes with less prior SHAP coverage in those patients are
@@ -332,7 +340,27 @@ patients who may also contribute training units. Under `unseen_patients`, they
 come only from patients completely absent from training.
 
 Important interpretation note:
-- `stability` is displayed as **Model reproducibility** and should be read as resampling consistency, not as independent biological replication, because different iterations reuse overlapping underlying data.
+- **Model reproducibility** is a 0-1 resampling-consistency score, not
+  independent biological replication, because different iterations reuse
+  overlapping underlying data. It equally combines recurrence-adjusted
+  SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
+  direction-and-threshold retention.
+
+The three Model reproducibility measurements are calculated as follows:
+
+- **SHAP-importance retention** is the fraction of valid feature-containing
+  iterations with nonzero importance multiplied by the 10th-percentile-to-median
+  ratio among positive relative importances.
+- **Delta-SHAP retention** is the fraction of valid iterations retaining the
+  aggregate delta-SHAP direction multiplied by the 10th-percentile-to-median
+  ratio of relative delta-SHAP magnitude among direction-matching iterations.
+- **Value-SHAP retention** is the fraction of valid feature-containing
+  iterations retaining the aggregate correlation direction and meeting
+  `shap_expr_cor_cutoff`.
+
+The three bounded results are averaged with equal weight. The final Model
+reproducibility score is already on a 0-1 scale and is therefore not rescaled
+across features before scoring.
 
 ---
 
@@ -370,7 +398,10 @@ These represent a multi-criteria feature ranking strategy rather than pure SHAP 
 ### Meaning of the components
 - **importance**: average feature importance or SHAP-based importance
 - **Cross-patient support**: a 0-1 patient-block bootstrap retention score that combines support for SHAP importance, Expression signal, and the Value-SHAP relationship
-- **model reproducibility**: reproducibility across repeated subsampling/model fits
+- **model reproducibility**: the equal-weight mean of recurrence-adjusted
+  SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
+  direction-and-threshold retention across repeated model fits. It is already
+  bounded from 0 to 1 and is not rescaled across features.
 - **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled within-condition expression consistency.
 - **value_shap**: relationship between feature value and SHAP contribution
 
@@ -409,7 +440,12 @@ The scoring function can:
 This makes the ranking more robust and less dependent on one noisy metric.
 
 ### Cross-patient support
-SHAPTURE resamples patients as complete blocks 1,000 times while keeping the final feature list fixed. For condition-vs-condition tasks, patients are resampled separately within each condition and the original number of patient blocks is drawn in each arm. For one-vs-others tasks, patients are resampled globally so all target and background rows from a selected patient remain together.
+SHAPTURE resamples patients as complete blocks while keeping the final feature
+list fixed. `cross_patient_bootstraps` controls the number of replicates and
+defaults to 1,000. For condition-vs-condition tasks, patients are resampled
+separately within each condition and the original number of patient blocks is
+drawn in each arm. For one-vs-others tasks, patients are resampled globally so
+all target and background rows from a selected patient remain together.
 
 Each bootstrap recalculates the same three main evidence streams used in ranking:
 
@@ -424,6 +460,8 @@ Cross-patient support is available with at least two patients in each condition 
 - `docs/stats_interpretation.csv`
 - `docs/cross_patient_support_method_used.csv`
 - `docs/cross_patient_support_by_feature.csv`
+- `docs/model_reproducibility_by_feature.csv`
+- `docs/model_reproducibility_by_iteration.csv`
 - `docs/shapture_config_used.csv`
 
 ---

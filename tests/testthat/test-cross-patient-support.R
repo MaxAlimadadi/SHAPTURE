@@ -193,3 +193,46 @@ test_that("Unavailable support is missing and remaining weights are renormalized
   )
   expect_equal(weight_sum, 1)
 })
+
+
+test_that("Feature-specific Cross-patient Support contributes without recycling", {
+  stats_results <- data.frame(
+    feature = c("A1BG", "feature_b", "feature_c"),
+    effect_size = c(0.4, 0.4, 0.4),
+    stability = c(0.5, 0.5, 0.5),
+    model_reproducibility = c(0.5, 0.5, 0.5),
+    min_patients = c(3, 3, 3),
+    expression_log2FC = c(1, 1, 1),
+    det_diff = c(0.4, 0.4, 0.4),
+    shap_expr_cor = c(0.8, 0.8, 0.8),
+    within_condition_consistency_raw = c(0.7, 0.7, 0.7),
+    cross_patient_support = c(0.2, 0.8, 0.5),
+    cross_patient_support_available = TRUE,
+    cross_patient_support_unavailable_reason = NA_character_,
+    check.names = FALSE
+  )
+  average_importance <- data.frame(
+    feature = stats_results$feature,
+    `average|SHAP value|` = c(0.5, 0.5, 0.5),
+    check.names = FALSE
+  )
+
+  ranked <- compute_combined_shap_ranking(
+    average_importance = average_importance,
+    stats_results = stats_results,
+    default_prior_scores_weights = c(
+      importance = 0,
+      cross_patient_support = 1,
+      model_reproducibility = 0,
+      expression = 0,
+      value_shap = 0
+    ),
+    what_0 = "left",
+    what_1 = "right",
+    score_scaling_method = "minmax"
+  )
+  ranked <- ranked[match(stats_results$feature, ranked$feature), ]
+
+  expect_equal(ranked$final_score, stats_results$cross_patient_support)
+  expect_equal(ranked$rank, c(3L, 1L, 2L))
+})
