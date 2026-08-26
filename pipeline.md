@@ -453,7 +453,21 @@ Each bootstrap recalculates the same three main evidence streams used in ranking
 - Expression signal from oriented expression log2FC, oriented detection-rate difference, and within-condition expression consistency
 - Value-SHAP correlation
 
-SHAP importance and Expression signal use the fifth-percentile-to-median retention ratio. Value-SHAP support is the fraction of valid bootstraps that retain the full-data correlation direction and meet `shap_expr_cor_cutoff`. Their equal-weight mean is saved as `cross_patient_support` on its natural 0-1 scale; it is not rescaled across features.
+SHAP-importance support uses a smoother retention calculation. For scaled
+bootstrap importance values \(I_b\), values above \(\epsilon=10^{-8}\) are
+treated as positive. SHAPTURE calculates the positive-value frequency
+\(f_+\), the ratio between the positive-value fifth percentile and median
+\(R_+\), and then combines them as \(S_{importance}=f_+R_+\). This penalizes
+importance that is intermittent or loses magnitude without forcing support to
+zero only because some bootstraps have zero importance. If no positive values
+are observed, support is zero.
+
+Expression signal continues to use the fifth-percentile-to-median retention
+ratio across all valid bootstrap values. Value-SHAP support remains the
+fraction of valid bootstraps that retain the full-data correlation direction
+and meet `shap_expr_cor_cutoff`. The equal-weight mean of the three support
+measurements is saved as `cross_patient_support` on its natural 0-1 scale; it
+is not rescaled across features.
 
 Cross-patient support is available with at least two patients in each condition for condition-vs-condition, or at least two patients in total for one-vs-others. If the minimum is not met, the value remains `NA`, its weight is set to zero, and the other four weights are renormalized. The state and diagnostics are written to:
 

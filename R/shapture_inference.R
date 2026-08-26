@@ -101,6 +101,91 @@ compute_bootstrap_retention <- function(values, zero_tolerance = 1e-8) {
 }
 
 
+#' Calculate smoother SHAP-importance bootstrap retention
+#'
+#' Combines the frequency of positive scaled importance with conservative
+#' magnitude retention among positive bootstrap values. This avoids forcing
+#' support to zero solely because the lower tail contains some zero values.
+#'
+#' @param values Numeric bootstrap importance values on a nonnegative scale.
+#' @param lower_probability Lower quantile used among positive values.
+#' @param zero_tolerance Values at or below this threshold are treated as zero.
+#'
+#' @return Named numeric vector containing support, nonzero frequency,
+#'   positive-value retention diagnostics, and valid bootstrap counts.
+#' @keywords internal
+compute_smoother_importance_retention <- function(
+    values,
+    lower_probability = 0.05,
+    zero_tolerance = 1e-8
+) {
+  if (!is.numeric(lower_probability) ||
+      length(lower_probability) != 1L ||
+      !is.finite(lower_probability) ||
+      lower_probability <= 0 ||
+      lower_probability >= 0.5) {
+    stop("lower_probability must be one finite value greater than 0 and less than 0.5.")
+  }
+
+  values <- values[is.finite(values)]
+  if (length(values) == 0L) {
+    return(c(
+      support = 0,
+      nonzero_frequency = 0,
+      positive_median = NA_real_,
+      positive_lower = NA_real_,
+      positive_retention = 0,
+      n_valid = 0,
+      n_positive = 0
+    ))
+  }
+  if (any(values < 0)) {
+    stop("Smoother SHAP-importance retention requires nonnegative bootstrap values.")
+  }
+
+  positive_values <- values[values > zero_tolerance]
+  n_valid <- length(values)
+  n_positive <- length(positive_values)
+  nonzero_frequency <- n_positive / n_valid
+  if (n_positive == 0L) {
+    return(c(
+      support = 0,
+      nonzero_frequency = nonzero_frequency,
+      positive_median = NA_real_,
+      positive_lower = NA_real_,
+      positive_retention = 0,
+      n_valid = n_valid,
+      n_positive = n_positive
+    ))
+  }
+
+  positive_median <- stats::median(positive_values)
+  positive_lower <- as.numeric(stats::quantile(
+    positive_values,
+    probs = lower_probability,
+    names = FALSE,
+    na.rm = TRUE,
+    type = 7
+  ))
+  positive_retention <- if (!is.finite(positive_median) ||
+      positive_median <= zero_tolerance) {
+    0
+  } else {
+    min(1, max(0, positive_lower / positive_median))
+  }
+
+  c(
+    support = nonzero_frequency * positive_retention,
+    nonzero_frequency = nonzero_frequency,
+    positive_median = positive_median,
+    positive_lower = positive_lower,
+    positive_retention = positive_retention,
+    n_valid = n_valid,
+    n_positive = n_positive
+  )
+}
+
+
 #' Compute Model reproducibility across repeated model fits
 #'
 #' Summarizes how consistently a feature retains SHAP importance, signed
@@ -315,8 +400,10 @@ compute_model_reproducibility <- function(
 #'
 #' Patient blocks are resampled with replacement. SHAP importance, Expression
 #' signal, and the Value-SHAP relationship are recalculated for the fixed final
-#' feature set. The first two use fifth-percentile-to-median retention; the
-#' Value-SHAP relationship uses direction-and-threshold retention frequency.
+#' feature set. SHAP importance combines nonzero frequency with positive-value
+#' fifth-percentile-to-median retention. Expression signal uses the original
+#' all-bootstrap fifth-percentile-to-median retention, and the Value-SHAP
+#' relationship uses direction-and-threshold retention frequency.
 #'
 #' @param shap_matrix Unit-averaged held-out SHAP matrix.
 #' @param shap_feature_values Unit-averaged model-input feature matrix.
@@ -675,12 +762,22 @@ compute_cross_patient_support <- function(
   }
 
   importance_retention <- t(vapply(seq_len(n_features), function(j) {
+    compute_smoother_importance_retention(
+      importance_bootstrap[, j],
+      lower_probability = 0.05
+    )
+  }, numeric(7)))
+  importance_all_value_summary <- t(vapply(seq_len(n_features), function(j) {
     compute_bootstrap_retention(importance_bootstrap[, j])
   }, numeric(4)))
   expression_retention <- t(vapply(seq_len(n_features), function(j) {
     compute_bootstrap_retention(expression_bootstrap[, j])
   }, numeric(4)))
-  colnames(importance_retention) <- c("support", "median", "q05", "n_valid")
+  colnames(importance_retention) <- c(
+    "support", "nonzero_frequency", "positive_median", "positive_q05",
+    "positive_retention", "n_valid", "n_positive"
+  )
+  colnames(importance_all_value_summary) <- c("support", "median", "q05", "n_valid")
   colnames(expression_retention) <- c("support", "median", "q05", "n_valid")
 
   value_shap_support <- vapply(seq_len(n_features), function(j) {
@@ -715,11 +812,16 @@ compute_cross_patient_support <- function(
     shap_importance_support = importance_retention[, "support"],
     expression_signal_support = expression_retention[, "support"],
     value_shap_relationship_support = value_shap_support,
-    shap_importance_bootstrap_median = importance_retention[, "median"],
-    shap_importance_bootstrap_q05 = importance_retention[, "q05"],
+    shap_importance_bootstrap_median = importance_all_value_summary[, "median"],
+    shap_importance_bootstrap_q05 = importance_all_value_summary[, "q05"],
+    shap_importance_nonzero_frequency = importance_retention[, "nonzero_frequency"],
+    shap_importance_positive_median = importance_retention[, "positive_median"],
+    shap_importance_positive_q05 = importance_retention[, "positive_q05"],
+    shap_importance_positive_retention = importance_retention[, "positive_retention"],
     expression_signal_bootstrap_median = expression_retention[, "median"],
     expression_signal_bootstrap_q05 = expression_retention[, "q05"],
     shap_importance_valid_bootstraps = as.integer(importance_retention[, "n_valid"]),
+    shap_importance_positive_bootstraps = as.integer(importance_retention[, "n_positive"]),
     expression_signal_valid_bootstraps = as.integer(expression_retention[, "n_valid"]),
     value_shap_valid_bootstraps = as.integer(value_shap_valid),
     n_bootstraps_requested = n_bootstraps,

@@ -61,7 +61,9 @@ List containing per-feature support, diagnostics, and task metadata.
 \description{
 Patient blocks are resampled with replacement. SHAP importance, Expression
 signal, and the Value-SHAP relationship are recalculated for the fixed final
-feature set. The first two use fifth-percentile-to-median retention; the
-Value-SHAP relationship uses direction-and-threshold retention frequency.
+feature set. SHAP importance combines nonzero frequency with positive-value
+fifth-percentile-to-median retention. Expression signal uses the original
+all-bootstrap fifth-percentile-to-median retention, and the Value-SHAP
+relationship uses direction-and-threshold retention frequency.
 }
 \keyword{internal}

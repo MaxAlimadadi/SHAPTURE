@@ -45,10 +45,14 @@ Cross-patient support asks whether the three main evidence streams persist when
 patients are resampled as complete blocks. By default, SHAPTURE runs 1,000
 patient-block bootstraps, recalculates SHAP importance, Expression signal, and
 the Value-SHAP relationship for the fixed retained feature set, and combines
-their 0-1 retention measures with equal weight. The number of replicates is
-controlled by `cross_patient_bootstraps`. If there are too few patients, this
-component is left unavailable and the remaining four score weights are
-renormalized.
+their 0-1 retention measures with equal weight. SHAP-importance support is the
+frequency of positive bootstrap importance multiplied by the fifth-percentile-
+to-median ratio among positive values. Expression signal keeps its
+fifth-percentile-to-median retention measure, while Value-SHAP support remains
+the frequency of bootstraps that retain the required direction and correlation
+threshold. The number of replicates is controlled by
+`cross_patient_bootstraps`. If there are too few patients, this component is
+left unavailable and the remaining four score weights are renormalized.
 
 Model reproducibility is calculated across repeated model fits from three
 equally weighted measurements: recurrence-adjusted SHAP-importance retention,

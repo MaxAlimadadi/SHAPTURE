@@ -64,6 +64,33 @@ make_cross_patient_test_data <- function(patients_per_condition = 3L) {
 }
 
 
+test_that("Smoother importance retention combines recurrence and positive magnitude", {
+  importance_values <- c(rep(0, 75), rep(0.45, 23), rep(0.60, 402))
+
+  result <- compute_smoother_importance_retention(importance_values)
+
+  expect_equal(unname(result["nonzero_frequency"]), 425 / 500)
+  expect_equal(unname(result["positive_median"]), 0.60)
+  expect_equal(unname(result["positive_lower"]), 0.45)
+  expect_equal(unname(result["positive_retention"]), 0.45 / 0.60)
+  expect_equal(unname(result["support"]), 0.85 * 0.75)
+  expect_equal(unname(result["n_valid"]), 500)
+  expect_equal(unname(result["n_positive"]), 425)
+})
+
+
+test_that("Smoother importance retention handles absent or invalid importance", {
+  all_zero <- compute_smoother_importance_retention(rep(0, 50))
+  no_valid <- compute_smoother_importance_retention(c(NA_real_, Inf, -Inf))
+
+  expect_equal(unname(all_zero["support"]), 0)
+  expect_equal(unname(all_zero["nonzero_frequency"]), 0)
+  expect_equal(unname(all_zero["n_valid"]), 50)
+  expect_equal(unname(no_valid["support"]), 0)
+  expect_equal(unname(no_valid["n_valid"]), 0)
+})
+
+
 test_that("Cross-patient support is bounded and reproducible", {
   test_data <- make_cross_patient_test_data(3L)
   result1 <- compute_cross_patient_support(
@@ -99,6 +126,15 @@ test_that("Cross-patient support is bounded and reproducible", {
   expect_true(all(result1$support$cross_patient_support <= 1))
   expect_equal(result1$support, result2$support)
   expect_equal(result1$diagnostics, result2$diagnostics)
+  expect_equal(
+    result1$diagnostics$shap_importance_support,
+    result1$diagnostics$shap_importance_nonzero_frequency *
+      result1$diagnostics$shap_importance_positive_retention
+  )
+  expect_true(all(
+    result1$diagnostics$shap_importance_positive_bootstraps <=
+      result1$diagnostics$shap_importance_valid_bootstraps
+  ))
 })
 
 
