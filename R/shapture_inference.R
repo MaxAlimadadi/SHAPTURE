@@ -188,7 +188,8 @@ compute_smoother_importance_retention <- function(
 
 #' Compute Model reproducibility across repeated model fits
 #'
-#' Summarizes how consistently a feature retains SHAP importance, signed
+#' Summarizes how consistently a feature retains raw mean absolute SHAP
+#' importance, signed
 #' condition-level SHAP separation, and its value-SHAP relationship across
 #' feature-bagged model iterations.
 #'
@@ -213,7 +214,7 @@ compute_model_reproducibility <- function(
     zero_tolerance = 1e-8
 ) {
   required_iteration_columns <- c(
-    "iteration", "feature", "relative_importance", "relative_delta_shap",
+    "iteration", "feature", "shap_importance", "relative_delta_shap",
     "delta_shap", "value_shap_cor"
   )
   missing_iteration_columns <- setdiff(
@@ -326,7 +327,7 @@ compute_model_reproducibility <- function(
     }
 
     importance_retention <- smoother_importance_retention(
-      feature_iterations$relative_importance
+      feature_iterations$shap_importance
     )
 
     reference_delta_sign <- sign(full_stats$effect_size[feature_index])

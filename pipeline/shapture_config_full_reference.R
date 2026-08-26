@@ -58,14 +58,14 @@ shapture_config_full <- list(
   test_ratio = 0.3,
   
   # number of repeated train/test/modeling iterations
-  iteration_no = 30,
+  iteration_no = 50,
 
   # fraction of filtered candidate features included in each coverage-aware
   # model iteration; must be greater than 0 and at most 1
-  gene_fraction_per_iteration = 0.20,
+  gene_fraction_per_iteration = 0.30,
 
   # number of patient-block bootstrap replicates used for Cross-patient Support
-  cross_patient_bootstraps = 1000L,
+  cross_patient_bootstraps = 500L,
 
   # reproducibility root; identical data, settings, and seed reproduce all stochastic stages
   analysis_seed = 123L,

@@ -86,13 +86,13 @@ shapture_config_condition_vs_condition <- list(
   comparison_mode = "condition_vs_condition",
   what_0 = condition_levels[1],
   what_1 = condition_levels[2],
-  iteration_no = 30,
+  iteration_no = 50,
 
   # fraction of filtered candidate features included in each model iteration
-  gene_fraction_per_iteration = 0.20,
+  gene_fraction_per_iteration = 0.30,
 
   # number of patient-block bootstrap replicates for Cross-patient Support
-  cross_patient_bootstraps = 1000L,
+  cross_patient_bootstraps = 500L,
 
   # reproducibility root; keep the same value to reproduce stochastic stages
   analysis_seed = 123L,
@@ -175,13 +175,13 @@ shapture_config_one_vs_others <- list(
   split_levels = NULL,
   
   comparison_mode = "one_vs_others",
-  iteration_no = 30,
+  iteration_no = 50,
 
   # fraction of filtered candidate features included in each model iteration
-  gene_fraction_per_iteration = 0.20,
+  gene_fraction_per_iteration = 0.30,
 
   # number of patient-block bootstrap replicates for Cross-patient Support
-  cross_patient_bootstraps = 1000L,
+  cross_patient_bootstraps = 500L,
 
   # reproducibility root; keep the same value to reproduce stochastic stages
   analysis_seed = 123L,

@@ -55,9 +55,9 @@ default_shapture_script_config <- function(what_genes) {
     project_name = NULL,
     train_ratio = 0.7,
     test_ratio = 0.3,
-    iteration_no = 30,
-    gene_fraction_per_iteration = 0.20,
-    cross_patient_bootstraps = 1000L,
+    iteration_no = 50,
+    gene_fraction_per_iteration = 0.30,
+    cross_patient_bootstraps = 500L,
     analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),
@@ -1805,12 +1805,6 @@ run_shapture_task <- function(
     
     iteration_importance <- colMeans(abs(shap_values), na.rm = TRUE)
     total_iteration_importance <- sum(iteration_importance, na.rm = TRUE)
-    relative_importance <- if (is.finite(total_iteration_importance) &&
-        total_iteration_importance > 0) {
-      iteration_importance / total_iteration_importance
-    } else {
-      stats::setNames(rep(0, length(iteration_importance)), names(iteration_importance))
-    }
     importance_data <- data.frame(
       iteration = temp_iter,
       feature = colnames(shap_values),
@@ -1849,7 +1843,7 @@ run_shapture_task <- function(
     model_reproducibility_iteration <- data.frame(
       iteration = temp_iter,
       feature = feature,
-      relative_importance = relative_importance[feature],
+      shap_importance = iteration_importance[feature],
       delta_shap = patient_delta_values[feature],
       relative_delta_shap = abs(patient_delta_values[feature]) /
         max(total_iteration_importance, .Machine$double.eps),
@@ -2697,9 +2691,9 @@ run_shapture_task <- function(
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
 #' @param gene_fraction_per_iteration Fraction of task features included in
-#'   each coverage-aware model iteration. The default is `0.20`.
+#'   each coverage-aware model iteration. The default is `0.30`.
 #' @param cross_patient_bootstraps Number of patient-block bootstrap replicates
-#'   used for Cross-patient Support. The default is `1000L`.
+#'   used for Cross-patient Support. The default is `500L`.
 #' @param analysis_seed Positive integer reproducibility root. The default
 #'   `123L` deterministically controls task sampling, feature selection, model
 #'   fitting, metacell construction, and Cross-patient bootstrapping.
@@ -2765,9 +2759,9 @@ run_shapture_pipeline <- function(
     project_name = NULL,
     train_ratio = 0.7,
     test_ratio = 0.3,
-    iteration_no = 30,
-    gene_fraction_per_iteration = 0.20,
-    cross_patient_bootstraps = 1000L,
+    iteration_no = 50,
+    gene_fraction_per_iteration = 0.30,
+    cross_patient_bootstraps = 500L,
     analysis_seed = 123L,
     top_feature_label = 30,
     top_feature_show = length(what_genes),

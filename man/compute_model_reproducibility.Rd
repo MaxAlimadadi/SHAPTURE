@@ -32,7 +32,8 @@ Data frame with one bounded Model reproducibility score and its
 three subcomponent diagnostics per feature.
 }
 \description{
-Summarizes how consistently a feature retains SHAP importance, signed
+Summarizes how consistently a feature retains raw mean absolute SHAP
+importance, signed
 condition-level SHAP separation, and its value-SHAP relationship across
 feature-bagged model iterations.
 }

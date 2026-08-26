@@ -65,11 +65,11 @@ The main script defines a set of user-controlled parameters.
 
 ### Repeated modeling
 - `train_ratio`, `test_ratio`: training and testing fractions
-- `iteration_no`: number of repeated model fits
+- `iteration_no`: number of repeated model fits; default is `50`
 - `gene_fraction_per_iteration`: fraction of filtered candidate features used
-  in each coverage-aware model fit; default is `0.20`
+  in each coverage-aware model fit; default is `0.30`
 - `cross_patient_bootstraps`: number of patient-block bootstrap replicates used
-  for Cross-patient Support; default is `1000L`
+  for Cross-patient Support; default is `500L`
 - `analysis_seed`: reproducibility root for all stochastic stages; default is
   `123L`
 - `patient_split_strategy`: `shared_patients` (default) or `unseen_patients`
@@ -343,14 +343,15 @@ Important interpretation note:
 - **Model reproducibility** is a 0-1 resampling-consistency score, not
   independent biological replication, because different iterations reuse
   overlapping underlying data. It equally combines recurrence-adjusted
-  SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
-  direction-and-threshold retention.
+  raw mean absolute SHAP-importance retention, signed delta-SHAP retention,
+  and Value-SHAP direction-and-threshold retention.
 
 The three Model reproducibility measurements are calculated as follows:
 
 - **SHAP-importance retention** is the fraction of valid feature-containing
   iterations with nonzero importance multiplied by the 10th-percentile-to-median
-  ratio among positive relative importances.
+  ratio among positive raw mean absolute SHAP importances. Intentionally
+  excluded feature iterations are not included in the denominator.
 - **Delta-SHAP retention** is the fraction of valid iterations retaining the
   aggregate delta-SHAP direction multiplied by the 10th-percentile-to-median
   ratio of relative delta-SHAP magnitude among direction-matching iterations.
@@ -399,9 +400,9 @@ These represent a multi-criteria feature ranking strategy rather than pure SHAP 
 - **importance**: average feature importance or SHAP-based importance
 - **Cross-patient support**: a 0-1 patient-block bootstrap retention score that combines support for SHAP importance, Expression signal, and the Value-SHAP relationship
 - **model reproducibility**: the equal-weight mean of recurrence-adjusted
-  SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
-  direction-and-threshold retention across repeated model fits. It is already
-  bounded from 0 to 1 and is not rescaled across features.
+  raw mean absolute SHAP-importance retention, signed delta-SHAP retention,
+  and Value-SHAP direction-and-threshold retention across repeated model fits.
+  It is already bounded from 0 to 1 and is not rescaled across features.
 - **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled within-condition expression consistency.
 - **value_shap**: relationship between feature value and SHAP contribution
 
@@ -442,7 +443,7 @@ This makes the ranking more robust and less dependent on one noisy metric.
 ### Cross-patient support
 SHAPTURE resamples patients as complete blocks while keeping the final feature
 list fixed. `cross_patient_bootstraps` controls the number of replicates and
-defaults to 1,000. For condition-vs-condition tasks, patients are resampled
+defaults to 500. For condition-vs-condition tasks, patients are resampled
 separately within each condition and the original number of patient blocks is
 drawn in each arm. For one-vs-others tasks, patients are resampled globally so
 all target and background rows from a selected patient remain together.
