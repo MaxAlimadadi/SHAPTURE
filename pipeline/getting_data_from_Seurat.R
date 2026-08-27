@@ -126,10 +126,10 @@ shapture_config_condition_vs_condition <- list(
   # FALSE uses the prior weights directly; TRUE adapts them to component spread in this task
   if_adaptive_weights = FALSE,
   
-  # "winsorized" caps extreme component values before 0-1 scaling; "minmax" uses direct min-max scaling
-  score_scaling_method = "winsorized",
+  # median-anchor scoring for unbounded evidence; legacy values remain accepted for script compatibility
+  score_scaling_method = "median_anchor",
   
-  # lower/upper quantiles for winsorized component scaling and adaptive-weight spread estimates
+  # lower/upper quantiles used only for adaptive-weight spread estimates
   score_scaling_probs = c(0.05, 0.95),
   
   # "single_cell" or "metacell"
@@ -215,10 +215,10 @@ shapture_config_one_vs_others <- list(
   # FALSE uses the prior weights directly; TRUE adapts them to component spread in this task
   if_adaptive_weights = FALSE,
   
-  # "winsorized" caps extreme component values before 0-1 scaling; "minmax" uses direct min-max scaling
-  score_scaling_method = "winsorized",
+  # median-anchor scoring for unbounded evidence; legacy values remain accepted for script compatibility
+  score_scaling_method = "median_anchor",
   
-  # lower/upper quantiles for winsorized component scaling and adaptive-weight spread estimates
+  # lower/upper quantiles used only for adaptive-weight spread estimates
   score_scaling_probs = c(0.05, 0.95),
   
   # "single_cell" or "metacell"

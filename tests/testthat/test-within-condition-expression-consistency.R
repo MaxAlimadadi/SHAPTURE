@@ -122,13 +122,25 @@ test_that("Expression signal uses the new consistency score", {
       model_reproducibility = 0,
       expression = 1,
       value_shap = 0
-    ),
-    score_scaling_method = "minmax"
+    )
   )
   result <- result[match(stats_results$feature, result$feature), ]
 
-  expect_equal(result$within_condition_consistency_scaled, c(0, 0.5, 1))
-  expect_equal(result$expression_score, c(0, 0.5, 1))
+  expected_log2fc <- c(1 / 3, 1 / 2, 3 / 5)
+  expected_expression <- rowMeans(cbind(
+    expected_log2fc,
+    stats_results$det_diff,
+    stats_results$within_condition_consistency_raw
+  ))
+
+  expect_equal(result$expression_log2FC_abs_median_anchor, rep(2, 3))
+  expect_equal(result$expression_log2FC_abs_scaled, expected_log2fc)
+  expect_equal(result$det_diff_scaled, stats_results$det_diff)
+  expect_equal(
+    result$within_condition_consistency_scaled,
+    stats_results$within_condition_consistency_raw
+  )
+  expect_equal(result$expression_score, expected_expression)
   expect_false(any(c(
     "expr_variance",
     "within_condition_variance_inv",
@@ -136,4 +148,43 @@ test_that("Expression signal uses the new consistency score", {
     "var_inv",
     "var_scaled"
   ) %in% colnames(result)))
+})
+
+
+test_that("Median anchors are fitted before the Model-expression pattern filter", {
+  average_importance <- data.frame(
+    feature = c("feature_a", "feature_b", "feature_c"),
+    `average|SHAP value|` = c(0.1, 0.4, 1),
+    check.names = FALSE
+  )
+  stats_results <- data.frame(
+    feature = average_importance$feature,
+    effect_size = c(0.2, 0.3, 0.4),
+    cross_patient_support = c(0.7, 0.8, 0.9),
+    cross_patient_support_available = TRUE,
+    stability = c(0.7, 0.8, 0.9),
+    min_patients = rep(3, 3),
+    expression_log2FC = c(0.25, 0.5, 2),
+    det_diff = c(0.1, 0.2, 0.3),
+    shap_expr_cor = c(0.4, 0.6, 0.1),
+    within_condition_consistency_raw = c(0.2, 0.5, 0.8),
+    check.names = FALSE
+  )
+
+  result <- compute_combined_shap_ranking(
+    average_importance = average_importance,
+    stats_results = stats_results,
+    expression_log2FC_cutoff = 0.25,
+    shap_expr_cor_cutoff = 0.25
+  )
+  result <- result[match(c("feature_a", "feature_b"), result$feature), ]
+
+  expect_equal(result$feature, c("feature_a", "feature_b"))
+  expect_equal(result$shap_importance_median_anchor, rep(0.4, 2))
+  expect_equal(result$expression_log2FC_abs_median_anchor, rep(0.5, 2))
+  expect_equal(result$importance_scaled, c(0.2, 0.5))
+  expect_equal(result$expression_log2FC_abs_scaled, c(1 / 3, 0.5))
+  expect_equal(result$det_diff_scaled, c(0.1, 0.2))
+  expect_equal(result$within_condition_consistency_scaled, c(0.2, 0.5))
+  expect_equal(result$shap_expr_cor_abs_scaled, c(0.4, 0.6))
 })

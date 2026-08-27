@@ -16,8 +16,7 @@ compute_cross_patient_support(
   comparison_mode = c("condition_vs_condition", "one_vs_others"),
   feature_min_log2FC = 0.25,
   shap_expr_cor_cutoff = 0.25,
-  score_scaling_method = c("winsorized", "minmax"),
-  score_scaling_probs = c(0.05, 0.95),
+  expression_log2FC_abs_median_anchor = NULL,
   n_bootstraps = 1000L,
   seed = 42L
 )
@@ -47,9 +46,8 @@ within-condition consistency.}
 
 \item{shap_expr_cor_cutoff}{Minimum bootstrap Value-SHAP correlation.}
 
-\item{score_scaling_method}{Full-analysis component scaling method.}
-
-\item{score_scaling_probs}{Full-analysis winsorization probabilities.}
+\item{expression_log2FC_abs_median_anchor}{Positive median absolute log2FC
+anchor fitted once from the full pre-pattern candidate-feature set.}
 
 \item{n_bootstraps}{Number of patient-block bootstrap replicates.}
 

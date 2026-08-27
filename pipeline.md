@@ -60,8 +60,8 @@ The main script defines a set of user-controlled parameters.
 - `shap_expr_cor_cutoff`: minimum absolute value-to-SHAP correlation required for `Model_expression_pattern`; default is `0.25`
 - `default_prior_scores_weights`: prior weights for the five score components
 - `if_adaptive_weights`: whether to adapt those weights to component spread in each task; default is `FALSE`
-- `score_scaling_method`: `"winsorized"` or `"minmax"`; default is `"winsorized"`
-- `score_scaling_probs`: lower/upper quantiles used by winsorized component scaling and adaptive-weight spread estimates; default is `c(0.05, 0.95)`
+- `score_scaling_method`: default is `"median_anchor"`; legacy `"winsorized"` and `"minmax"` values remain accepted for script compatibility, while evidence scoring uses the fixed median-anchor/native-bounded strategy
+- `score_scaling_probs`: lower/upper quantiles used only for robust adaptive-weight spread estimates; default is `c(0.05, 0.95)`
 
 ### Repeated modeling
 - `train_ratio`, `test_ratio`: training and testing fractions
@@ -394,19 +394,19 @@ The final ranking incorporates multiple scaled components:
 - `expression_score`
 - `shap_expr_cor_abs_scaled`
 
-These represent a multi-criteria feature ranking strategy rather than pure SHAP magnitude alone. By default, each component is winsorized at `score_scaling_probs` and then rescaled to 0-1 before scoring. If `if_adaptive_weights = FALSE`, the configured prior weights are used directly. If `if_adaptive_weights = TRUE`, SHAPTURE estimates component spread after the same winsorization step, shrinks those data-driven weights toward the prior weights, and normalizes the final weights to sum to 1.
+These represent a multi-criteria feature ranking strategy rather than pure SHAP magnitude alone. SHAPTURE does not stretch naturally bounded evidence across the observed feature range. Instead, unbounded SHAP importance and absolute expression log2FC use `x / (x + k)`, where `k` is the positive median of that measurement across the fixed candidate-feature set for the task. Absolute detection-rate difference, within-condition expression consistency, absolute Value-SHAP correlation, Cross-patient support, and model reproducibility keep their natural 0-1 values. If `if_adaptive_weights = FALSE`, the configured prior weights are used directly. If `if_adaptive_weights = TRUE`, SHAPTURE estimates component spread after winsorization at `score_scaling_probs`, shrinks those data-driven weights toward the prior weights, and normalizes the final weights to sum to 1.
 
 ### Meaning of the components
-- **importance**: average feature importance or SHAP-based importance
+- **importance**: mean absolute SHAP importance transformed as `I / (I + k_I)`, where `k_I` is the median positive importance among fixed candidate features
 - **Cross-patient support**: a 0-1 patient-block bootstrap retention score that combines support for SHAP importance, Expression signal, and the Value-SHAP relationship
 - **model reproducibility**: the equal-weight mean of recurrence-adjusted
   raw mean absolute SHAP-importance retention, signed delta-SHAP retention,
   and Value-SHAP direction-and-threshold retention across repeated model fits.
   It is already bounded from 0 to 1 and is not rescaled across features.
-- **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It combines scaled absolute expression log2FC, scaled absolute detection-rate difference, and scaled within-condition expression consistency.
-- **value_shap**: relationship between feature value and SHAP contribution
+- **expression**: support from how strongly, broadly, and consistently within each condition the feature is expressed. It averages median-anchored absolute expression log2FC, natural absolute detection-rate difference, and natural within-condition expression consistency.
+- **value_shap**: natural absolute Spearman correlation between feature value and SHAP contribution
 
-Within-condition expression consistency is calculated from the original task-level cells for both single-cell and metacell runs. For each feature and condition, zeros remain unchanged. If at least 20 cells are positive, only positive values above their condition-specific 99th percentile are capped. The condition-specific pseudocount is `max(0.01 * median(positive values), 1e-6)`, and robust relative variability is calculated as `SD / (abs(mean) + pseudocount)`. SHAPTURE converts this to `1 / (1 + CV)` and averages the two condition scores equally. A condition in which every cell is zero receives a consistency score of 1 for homogeneous absence; a feature absent in both conditions is removed. `within_condition_consistency_raw` stores the bounded score, while `within_condition_consistency_scaled` is the score-scaling result used in the Expression signal.
+Within-condition expression consistency is calculated from the original task-level cells for both single-cell and metacell runs. For each feature and condition, zeros remain unchanged. If at least 20 cells are positive, only positive values above their condition-specific 99th percentile are capped. The condition-specific pseudocount is `max(0.01 * median(positive values), 1e-6)`, and robust relative variability is calculated as `SD / (abs(mean) + pseudocount)`. SHAPTURE converts this to `1 / (1 + CV)` and averages the two condition scores equally. A condition in which every cell is zero receives a consistency score of 1 for homogeneous absence; a feature absent in both conditions is removed. `within_condition_consistency_raw` stores the bounded score. The compatibility column `within_condition_consistency_scaled` now contains the same natural value rather than an across-feature rescaling.
 
 ### Model Expression Pattern
 `Model_expression_pattern` is saved in `combined_results.csv` and used as an interpretation label in plots.
@@ -434,7 +434,8 @@ After SHAP values are computed, features with `Insufficient directional evidence
 The scoring function can:
 - check that all required summary columns exist,
 - apply prior weights,
-- winsorize extreme component values before scaling when `score_scaling_method = "winsorized"`,
+- fit fixed task-level median anchors before direction and Model-expression pattern filtering,
+- preserve naturally bounded evidence without across-feature rescaling,
 - optionally adapt weights to component spread when `if_adaptive_weights = TRUE`,
 - combine multiple evidence streams into a final score.
 
@@ -450,11 +451,11 @@ all target and background rows from a selected patient remain together.
 
 Each bootstrap recalculates the same three main evidence streams used in ranking:
 
-- scaled mean absolute SHAP importance
+- raw mean absolute SHAP importance
 - Expression signal from oriented expression log2FC, oriented detection-rate difference, and within-condition expression consistency
 - Value-SHAP correlation
 
-SHAP-importance support uses a smoother retention calculation. For scaled
+SHAP-importance support uses a smoother retention calculation. For raw
 bootstrap importance values \(I_b\), values above \(\epsilon=10^{-8}\) are
 treated as positive. SHAPTURE calculates the positive-value frequency
 \(f_+\), the ratio between the positive-value fifth percentile and median
@@ -463,8 +464,12 @@ importance that is intermittent or loses magnitude without forcing support to
 zero only because some bootstraps have zero importance. If no positive values
 are observed, support is zero.
 
-Expression signal continues to use the fifth-percentile-to-median retention
-ratio across all valid bootstrap values. Value-SHAP support remains the
+Within every patient bootstrap, oriented absolute expression log2FC is
+transformed with the same fixed full-task log2FC anchor used by the main score.
+Oriented absolute detection difference and within-condition consistency keep
+their natural 0-1 values. Their average forms the bootstrap Expression signal,
+which uses the fifth-percentile-to-median retention ratio across all valid
+bootstrap values. Value-SHAP support remains the
 fraction of valid bootstraps that retain the full-data correlation direction
 and meet `shap_expr_cor_cutoff`. The equal-weight mean of the three support
 measurements is saved as `cross_patient_support` on its natural 0-1 scale; it
@@ -477,6 +482,7 @@ Cross-patient support is available with at least two patients in each condition 
 - `docs/cross_patient_support_by_feature.csv`
 - `docs/model_reproducibility_by_feature.csv`
 - `docs/model_reproducibility_by_iteration.csv`
+- `docs/score_anchor_summary.csv`
 - `docs/shapture_config_used.csv`
 
 ---

@@ -60,6 +60,23 @@ SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
 direction-and-threshold retention. Its natural 0-1 score enters the final
 ranking without across-feature rescaling.
 
+SHAPTURE keeps naturally bounded evidence on its original 0-1 scale. Absolute
+detection-rate difference, within-condition expression consistency, absolute
+Value-SHAP correlation, Cross-patient support, and model reproducibility are
+therefore not stretched across features. The two unbounded measurements use a
+fixed median-anchor transformation, `x / (x + k)`: `k` is the median positive
+SHAP importance or median nonzero absolute expression log2FC among the fixed
+candidate features for that task. A value equal to its task anchor receives
+0.5. Anchors are fitted after detection/log2FC prefiltering and before the
+direction and Model-expression pattern filters, then reused inside the
+Cross-patient calculation where applicable.
+
+Cross-patient SHAP-importance retention is calculated from raw bootstrap
+importance, without the nonlinear main-score transformation. The fixed
+log2FC anchor is reused when constructing each bootstrap Expression signal.
+Anchors are task-specific references: the resulting scores are not
+probabilities, and changing the candidate-feature set can change the anchors.
+
 The goal is a ranked marker table that is useful for biological follow-up, not
 just a model accuracy report.
 
@@ -133,7 +150,7 @@ shapture_config <- list(
   feature_min_log2FC = 0.25,
   shap_expr_cor_cutoff = 0.25,
   if_adaptive_weights = FALSE,
-  score_scaling_method = "winsorized",
+  score_scaling_method = "median_anchor",
   score_scaling_probs = c(0.05, 0.95),
   analysis_unit_type = "single_cell",
   memory_mode = "safe",
@@ -178,6 +195,13 @@ Keep the same input data and row order, package versions, settings, and
 `analysis_seed` deliberately when running an independent stochastic repeat.
 Every completed task records its complete seed plan in
 `docs/reproducibility_seeds.csv`.
+
+Every task also records the fixed SHAP-importance and absolute-log2FC anchors
+in `docs/score_anchor_summary.csv`. The legacy `score_scaling_method` values
+`"winsorized"` and `"minmax"` remain accepted so older scripts do not fail,
+but evidence scoring follows the median-anchor/native-bounded strategy.
+`score_scaling_probs` is used only when optional adaptive weighting estimates
+robust component spread.
 
 ### Patient train/test strategies
 

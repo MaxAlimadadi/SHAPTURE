@@ -19,7 +19,9 @@ compute_combined_shap_ranking(
   what_1 = "condition_1",
   expression_log2FC_cutoff = 0.25,
   shap_expr_cor_cutoff = 0.25,
-  score_scaling_method = c("winsorized", "minmax"),
+  shap_importance_median_anchor = NULL,
+  expression_log2FC_abs_median_anchor = NULL,
+  score_scaling_method = c("median_anchor", "winsorized", "minmax"),
   score_scaling_probs = c(0.05, 0.95)
 )
 }
@@ -56,12 +58,18 @@ keep a model-expression pattern.}
 \item{shap_expr_cor_cutoff}{Minimum absolute value-SHAP correlation needed to
 keep a model-expression pattern.}
 
-\item{score_scaling_method}{Component scaling method. \code{"winsorized"} caps
-finite values at \code{score_scaling_probs} before min-max scaling; \code{"minmax"}
-uses ordinary min-max scaling.}
+\item{shap_importance_median_anchor}{Optional positive median anchor fitted
+from the fixed pre-pattern candidate-feature SHAP importances.}
 
-\item{score_scaling_probs}{Two quantiles used when
-\code{score_scaling_method = "winsorized"}.}
+\item{expression_log2FC_abs_median_anchor}{Optional positive median anchor
+fitted from the fixed pre-pattern candidate-feature absolute log2FC values.}
+
+\item{score_scaling_method}{Backward-compatible configuration field. Main
+evidence scores use median-anchor transformation for unbounded inputs and
+retain naturally bounded inputs without across-feature scaling.}
+
+\item{score_scaling_probs}{Quantiles used only to winsorize component values
+when estimating optional adaptive-weight spread.}
 }
 \value{
 Ranked data frame.

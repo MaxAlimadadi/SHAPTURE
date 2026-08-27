@@ -103,7 +103,7 @@ compute_bootstrap_retention <- function(values, zero_tolerance = 1e-8) {
 
 #' Calculate smoother SHAP-importance bootstrap retention
 #'
-#' Combines the frequency of positive scaled importance with conservative
+#' Combines the frequency of positive raw importance with conservative
 #' magnitude retention among positive bootstrap values. This avoids forcing
 #' support to zero solely because the lower tail contains some zero values.
 #'
@@ -419,8 +419,8 @@ compute_model_reproducibility <- function(
 #'   `"one_vs_others"`.
 #' @param feature_min_log2FC Minimum bootstrap log2FC magnitude.
 #' @param shap_expr_cor_cutoff Minimum bootstrap Value-SHAP correlation.
-#' @param score_scaling_method Full-analysis component scaling method.
-#' @param score_scaling_probs Full-analysis winsorization probabilities.
+#' @param expression_log2FC_abs_median_anchor Positive median absolute log2FC
+#'   anchor fitted once from the full pre-pattern candidate-feature set.
 #' @param n_bootstraps Number of patient-block bootstrap replicates.
 #' @param seed Random seed.
 #'
@@ -438,13 +438,11 @@ compute_cross_patient_support <- function(
     comparison_mode = c("condition_vs_condition", "one_vs_others"),
     feature_min_log2FC = 0.25,
     shap_expr_cor_cutoff = 0.25,
-    score_scaling_method = c("winsorized", "minmax"),
-    score_scaling_probs = c(0.05, 0.95),
+    expression_log2FC_abs_median_anchor = NULL,
     n_bootstraps = 1000L,
     seed = 42L
 ) {
   comparison_mode <- match.arg(comparison_mode)
-  score_scaling_method <- match.arg(score_scaling_method)
   n_bootstraps <- as.integer(n_bootstraps)
   if (!is.finite(n_bootstraps) || n_bootstraps < 1L) {
     stop("n_bootstraps must be a positive integer.")
@@ -496,7 +494,12 @@ compute_cross_patient_support <- function(
     stop("Cross-patient support inputs do not cover every retained feature.")
   }
   full_stats <- full_stats[full_match, , drop = FALSE]
-  full_importance <- average_importance$`average|SHAP value|`[importance_match]
+  if (is.null(expression_log2FC_abs_median_anchor)) {
+    expression_log2FC_abs_median_anchor <- compute_positive_median_anchor(
+      abs(full_stats$expression_log2FC),
+      component_name = "absolute expression log2FC"
+    )
+  }
 
   make_block_table <- function(data) {
     unique(data.frame(
@@ -582,29 +585,6 @@ compute_cross_patient_support <- function(
     return(unavailable_result(unavailable_reason))
   }
 
-  scalers <- list(
-    importance = fit_shapture_score_scaler(
-      full_importance,
-      method = score_scaling_method,
-      probs = score_scaling_probs
-    ),
-    log2fc = fit_shapture_score_scaler(
-      abs(full_stats$expression_log2FC),
-      method = score_scaling_method,
-      probs = score_scaling_probs
-    ),
-    detection = fit_shapture_score_scaler(
-      abs(full_stats$det_diff),
-      method = score_scaling_method,
-      probs = score_scaling_probs
-    ),
-    consistency = fit_shapture_score_scaler(
-      full_stats$within_condition_consistency_raw,
-      method = score_scaling_method,
-      probs = score_scaling_probs
-    )
-  )
-
   n_features <- length(feature_names)
   importance_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
   expression_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
@@ -674,10 +654,7 @@ compute_cross_patient_support <- function(
     single_cell_index <- source_indices$single_cell
 
     bootstrap_importance <- colMeans(abs(shap_matrix[shap_index, , drop = FALSE]), na.rm = TRUE)
-    importance_bootstrap[bootstrap_index, ] <- apply_shapture_score_scaler(
-      bootstrap_importance,
-      scalers$importance
-    )
+    importance_bootstrap[bootstrap_index, ] <- bootstrap_importance
 
     value_shap_bootstrap[bootstrap_index, ] <- vapply(seq_len(n_features), function(j) {
       x <- shap_feature_values[shap_index, j]
@@ -702,10 +679,11 @@ compute_cross_patient_support <- function(
       abs(bootstrap_log2fc),
       0
     )
-    log2fc_score <- apply_shapture_score_scaler(log2fc_retained, scalers$log2fc)
-    # A direction reversal or sub-threshold effect must remain unsupported even
-    # when the full-data reference component is constant and scales to neutral.
-    log2fc_score[log2fc_retained == 0] <- 0
+    log2fc_score <- apply_median_anchor_transform(
+      log2fc_retained,
+      anchor = expression_log2FC_abs_median_anchor,
+      component_name = "bootstrap absolute expression log2FC"
+    )
 
     single_cell_matrix <- as.matrix(
       single_cell_expression_data[single_cell_index, feature_names, drop = FALSE]
@@ -722,8 +700,7 @@ compute_cross_patient_support <- function(
       abs(bootstrap_detection_diff),
       0
     )
-    detection_score <- apply_shapture_score_scaler(detection_retained, scalers$detection)
-    detection_score[detection_retained == 0] <- 0
+    detection_score <- pmin(1, pmax(0, detection_retained))
 
     consistency_result <- tryCatch(
       compute_within_condition_expression_consistency(
@@ -743,10 +720,13 @@ compute_cross_patient_support <- function(
       next
     }
     consistency_match <- match(feature_names, consistency_result$feature)
-    consistency_score <- apply_shapture_score_scaler(
-      consistency_result$within_condition_consistency_raw[consistency_match],
-      scalers$consistency
-    )
+    consistency_score <- consistency_result$within_condition_consistency_raw[consistency_match]
+    if (any(!is.finite(consistency_score)) ||
+        any(consistency_score < 0 | consistency_score > 1)) {
+      importance_bootstrap[bootstrap_index, ] <- NA_real_
+      value_shap_bootstrap[bootstrap_index, ] <- NA_real_
+      next
+    }
     bootstrap_expression <- (log2fc_score + detection_score + consistency_score) / 3
     bootstrap_expression[consistency_result$both_conditions_all_zero[consistency_match]] <- 0
     expression_bootstrap[bootstrap_index, ] <- bootstrap_expression
@@ -825,6 +805,8 @@ compute_cross_patient_support <- function(
     shap_importance_positive_bootstraps = as.integer(importance_retention[, "n_positive"]),
     expression_signal_valid_bootstraps = as.integer(expression_retention[, "n_valid"]),
     value_shap_valid_bootstraps = as.integer(value_shap_valid),
+    expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
+    scoring_strategy = "median_anchor_unbounded_natural_bounded",
     n_bootstraps_requested = n_bootstraps,
     n_bootstraps_valid_task = sum(task_bootstrap_valid),
     stringsAsFactors = FALSE,

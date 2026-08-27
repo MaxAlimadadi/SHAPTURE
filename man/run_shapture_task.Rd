@@ -112,11 +112,13 @@ single-cell task data. Set to \code{0} to disable this filter.}
 \item{shap_expr_cor_cutoff}{Minimum absolute value-SHAP correlation needed
 to assign a model-expression pattern label.}
 
-\item{score_scaling_method}{Component scaling method: \code{"winsorized"} or
-\code{"minmax"}.}
+\item{score_scaling_method}{Backward-compatible configuration field. The
+evidence scores use the fixed median-anchor and native bounded strategy;
+legacy \code{"winsorized"} and \code{"minmax"} values remain accepted so older
+scripts continue to run.}
 
-\item{score_scaling_probs}{Quantiles used for winsorized component scaling
-and adaptive-weight winsorization.}
+\item{score_scaling_probs}{Quantiles used only when winsorizing component
+values for optional adaptive-weight estimation.}
 
 \item{preprocessing_method}{Preprocessing method.}
 

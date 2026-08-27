@@ -83,12 +83,11 @@ shapture_config_full <- list(
   # default_prior_scores_weights directly
   if_adaptive_weights = FALSE,
 
-  # "winsorized" caps extreme component values before 0-1 scaling; "minmax"
-  # uses direct min-max scaling
-  score_scaling_method = "winsorized",
+  # median-anchor scoring for unbounded evidence; legacy values remain accepted
+  # so existing scripts continue to run
+  score_scaling_method = "median_anchor",
 
-  # lower/upper quantiles used by winsorized component scaling and by
-  # adaptive-weight spread estimates when adaptive weights are enabled
+  # lower/upper quantiles used only for adaptive-weight spread estimates
   score_scaling_probs = c(0.05, 0.95),
   
   # keep features detected (>0) in more than this fraction of cells in at least

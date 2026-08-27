@@ -30,7 +30,7 @@ run_shapture_pipeline(
   feature_min_pct = 0.25,
   feature_min_log2FC = 0.25,
   shap_expr_cor_cutoff = 0.25,
-  score_scaling_method = c("winsorized", "minmax"),
+  score_scaling_method = c("median_anchor", "winsorized", "minmax"),
   score_scaling_probs = c(0.05, 0.95),
   default_prior_scores_weights = c(SHAP_importance_prior_weight = 0.25,
     expression_signal_prior_weight = 0.25, value_SHAP_relationship_prior_weight = 0.3,
@@ -124,13 +124,14 @@ single-cell task data. Set to \code{0} to disable this filter.}
 \item{shap_expr_cor_cutoff}{Minimum absolute value-SHAP correlation needed
 to assign a model-expression pattern label.}
 
-\item{score_scaling_method}{Component scaling method. \code{"winsorized"} caps
-finite component values at \code{score_scaling_probs} before min-max scaling;
-\code{"minmax"} uses ordinary min-max scaling.}
+\item{score_scaling_method}{Backward-compatible configuration field. The
+default \code{"median_anchor"} uses fixed task-level median anchors for
+unbounded evidence and preserves naturally bounded 0-1 evidence. Legacy
+\code{"winsorized"} and \code{"minmax"} values remain accepted for existing scripts
+but do not replace the evidence-score strategy.}
 
-\item{score_scaling_probs}{Two quantiles used when
-\code{score_scaling_method = "winsorized"}. The same probabilities are also
-used when winsorizing components for adaptive-weight estimation.}
+\item{score_scaling_probs}{Two quantiles used only when winsorizing
+component values for optional adaptive-weight estimation.}
 
 \item{default_prior_scores_weights}{Named prior weights for the five final
 score components.}

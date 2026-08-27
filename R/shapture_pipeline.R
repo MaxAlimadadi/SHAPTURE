@@ -65,7 +65,7 @@ default_shapture_script_config <- function(what_genes) {
     feature_min_pct = 0.25,
     feature_min_log2FC = 0.25,
     shap_expr_cor_cutoff = 0.25,
-    score_scaling_method = "winsorized",
+    score_scaling_method = "median_anchor",
     score_scaling_probs = c(0.05, 0.95),
     default_prior_scores_weights = c(
       SHAP_importance_prior_weight = 0.25,
@@ -398,7 +398,7 @@ resolve_shapture_script_config <- function(
   valid_patient_split_strategies <- c("shared_patients", "unseen_patients")
   valid_shap_expr_cor_direction_filters <- c("both", "positive", "negative")
   valid_memory_modes <- c("full", "safe")
-  valid_score_scaling_methods <- c("minmax", "winsorized")
+  valid_score_scaling_methods <- c("median_anchor", "minmax", "winsorized")
   
   if (!config$patient_balance_method %in% valid_balance_methods) {
     stop("patient_balance_method must be one of: ", paste(valid_balance_methods, collapse = ", "))
@@ -1197,10 +1197,12 @@ filter_features_by_min_pct <- function(
 #'   single-cell task data. Set to `0` to disable this filter.
 #' @param shap_expr_cor_cutoff Minimum absolute value-SHAP correlation needed
 #'   to assign a model-expression pattern label.
-#' @param score_scaling_method Component scaling method: `"winsorized"` or
-#'   `"minmax"`.
-#' @param score_scaling_probs Quantiles used for winsorized component scaling
-#'   and adaptive-weight winsorization.
+#' @param score_scaling_method Backward-compatible configuration field. The
+#'   evidence scores use the fixed median-anchor and native bounded strategy;
+#'   legacy `"winsorized"` and `"minmax"` values remain accepted so older
+#'   scripts continue to run.
+#' @param score_scaling_probs Quantiles used only when winsorizing component
+#'   values for optional adaptive-weight estimation.
 #' @param default_prior_scores_weights Named prior weights for final score
 #'   components.
 #' @param feature_min_log2FC Minimum absolute expression log2FC in original
@@ -2213,6 +2215,54 @@ run_shapture_task <- function(
     "docs/model_reproducibility_by_iteration.csv",
     row.names = FALSE
   )
+
+  average_importance_for_ranking <- data.frame(
+    feature = colnames(unit_shap_matrix),
+    `average|SHAP value|` = colMeans(abs(unit_shap_matrix), na.rm = TRUE),
+    check.names = FALSE
+  )
+  score_anchor_features <- intersect(
+    stats_results$feature,
+    average_importance_for_ranking$feature
+  )
+  if (length(score_anchor_features) == 0L) {
+    stop("No fixed candidate features are available for score anchors in ", temp_split, ".")
+  }
+  score_anchor_importance_match <- match(
+    score_anchor_features,
+    average_importance_for_ranking$feature
+  )
+  score_anchor_stats_match <- match(score_anchor_features, stats_results$feature)
+  score_anchor_importance_values <- average_importance_for_ranking$`average|SHAP value|`[
+    score_anchor_importance_match
+  ]
+  score_anchor_log2fc_values <- abs(
+    stats_results$expression_log2FC[score_anchor_stats_match]
+  )
+  shap_importance_median_anchor <- compute_positive_median_anchor(
+    score_anchor_importance_values,
+    component_name = "SHAP importance"
+  )
+  expression_log2FC_abs_median_anchor <- compute_positive_median_anchor(
+    score_anchor_log2fc_values,
+    component_name = "absolute expression log2FC"
+  )
+  score_anchor_summary <- data.frame(
+    component = c("SHAP importance", "Absolute expression log2FC"),
+    transformation = "x / (x + positive median anchor)",
+    median_anchor = c(
+      shap_importance_median_anchor,
+      expression_log2FC_abs_median_anchor
+    ),
+    candidate_features_used = length(score_anchor_features),
+    positive_values_used = c(
+      sum(is.finite(score_anchor_importance_values) & score_anchor_importance_values > 1e-8),
+      sum(is.finite(score_anchor_log2fc_values) & score_anchor_log2fc_values > 1e-8)
+    ),
+    anchor_fitted_before_direction_and_pattern_filters = TRUE,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
   
   n_features_before_direction_filter <- nrow(stats_results)
   if (shap_expr_cor_direction_filter == "positive") {
@@ -2232,12 +2282,6 @@ run_shapture_task <- function(
     )
   }
   
-  average_importance_for_ranking <- data.frame(
-    feature = colnames(unit_shap_matrix),
-    `average|SHAP value|` = colMeans(abs(unit_shap_matrix), na.rm = TRUE),
-    check.names = FALSE
-  )
-
   support_pattern <- compute_model_expression_pattern(
     expression_log2FC = stats_results$expression_log2FC,
     shap_expr_cor = stats_results$shap_expr_cor,
@@ -2266,8 +2310,7 @@ run_shapture_task <- function(
     comparison_mode = comparison_mode,
     feature_min_log2FC = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
-    score_scaling_method = score_scaling_method,
-    score_scaling_probs = score_scaling_probs,
+    expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
     n_bootstraps = cross_patient_bootstraps,
     seed = seed_plan$cross_patient_bootstrap_seed
   )
@@ -2298,6 +2341,8 @@ run_shapture_task <- function(
     what_1 = task_what_1,
     expression_log2FC_cutoff = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
+    shap_importance_median_anchor = shap_importance_median_anchor,
+    expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
     score_scaling_method = score_scaling_method,
     score_scaling_probs = score_scaling_probs
   )
@@ -2350,6 +2395,7 @@ run_shapture_task <- function(
   )
   
   write.csv(stats_interpretation, "docs/stats_interpretation.csv", row.names = FALSE)
+  write.csv(score_anchor_summary, "docs/score_anchor_summary.csv", row.names = FALSE)
   write.csv(
     data.frame(
       cross_patient_support_method = "patient_block_bootstrap",
@@ -2361,6 +2407,9 @@ run_shapture_task <- function(
       patient_split_strategy_requested = patient_split_strategy_requested,
       patient_split_strategy_used = patient_split_strategy_used,
       shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
+      scoring_strategy = "median_anchor_unbounded_natural_bounded",
+      shap_importance_median_anchor = shap_importance_median_anchor,
+      expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
       cross_patient_support_note = cross_patient_support_note,
       stringsAsFactors = FALSE
     ),
@@ -2467,8 +2516,11 @@ run_shapture_task <- function(
     feature_min_log2FC = feature_min_log2FC,
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
     feature_bagging_fraction = feature_bagging_fraction,
-    score_scaling_method = score_scaling_method,
-    score_scaling_probs = paste(score_scaling_probs, collapse = ", "),
+    score_scaling_method = "median_anchor_unbounded_natural_bounded",
+    legacy_score_scaling_method_requested = score_scaling_method,
+    adaptive_weight_winsor_probs = paste(score_scaling_probs, collapse = ", "),
+    shap_importance_median_anchor = shap_importance_median_anchor,
+    expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
     if_adaptive_weights = if_adaptive_weights,
     shap_expr_cor_direction_filter = shap_expr_cor_direction_filter,
     visualization_inputs_saved = TRUE,
@@ -2709,12 +2761,13 @@ run_shapture_task <- function(
 #'   single-cell task data. Set to `0` to disable this filter.
 #' @param shap_expr_cor_cutoff Minimum absolute value-SHAP correlation needed
 #'   to assign a model-expression pattern label.
-#' @param score_scaling_method Component scaling method. `"winsorized"` caps
-#'   finite component values at `score_scaling_probs` before min-max scaling;
-#'   `"minmax"` uses ordinary min-max scaling.
-#' @param score_scaling_probs Two quantiles used when
-#'   `score_scaling_method = "winsorized"`. The same probabilities are also
-#'   used when winsorizing components for adaptive-weight estimation.
+#' @param score_scaling_method Backward-compatible configuration field. The
+#'   default `"median_anchor"` uses fixed task-level median anchors for
+#'   unbounded evidence and preserves naturally bounded 0-1 evidence. Legacy
+#'   `"winsorized"` and `"minmax"` values remain accepted for existing scripts
+#'   but do not replace the evidence-score strategy.
+#' @param score_scaling_probs Two quantiles used only when winsorizing
+#'   component values for optional adaptive-weight estimation.
 #' @param preprocessing_method Either `"none"` or `"scale"`.
 #' @param model_type Model backend.
 #' @param analysis_unit_type Either `"single_cell"` or `"metacell"`.
@@ -2769,7 +2822,7 @@ run_shapture_pipeline <- function(
     feature_min_pct = 0.25,
     feature_min_log2FC = 0.25,
     shap_expr_cor_cutoff = 0.25,
-    score_scaling_method = c("winsorized", "minmax"),
+    score_scaling_method = c("median_anchor", "winsorized", "minmax"),
     score_scaling_probs = c(0.05, 0.95),
     default_prior_scores_weights = c(
       SHAP_importance_prior_weight = 0.25,

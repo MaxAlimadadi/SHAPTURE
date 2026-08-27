@@ -22,7 +22,7 @@ Named numeric vector containing support, nonzero frequency,
 positive-value retention diagnostics, and valid bootstrap counts.
 }
 \description{
-Combines the frequency of positive scaled importance with conservative
+Combines the frequency of positive raw importance with conservative
 magnitude retention among positive bootstrap values. This avoids forcing
 support to zero solely because the lower tail contains some zero values.
 }

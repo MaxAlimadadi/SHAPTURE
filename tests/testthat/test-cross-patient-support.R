@@ -138,6 +138,51 @@ test_that("Cross-patient support is bounded and reproducible", {
 })
 
 
+test_that("Cross-patient SHAP-importance support is invariant to SHAP units", {
+  test_data <- make_cross_patient_test_data(3L)
+  scaled_test_data <- test_data
+  scaled_test_data$shap <- test_data$shap * 10
+  scaled_test_data$average_importance[["average|SHAP value|"]] <-
+    test_data$average_importance[["average|SHAP value|"]] * 10
+
+  base_result <- compute_cross_patient_support(
+    shap_matrix = test_data$shap,
+    shap_feature_values = test_data$expression,
+    shap_metadata = test_data$metadata,
+    model_expression_data = test_data$model_data,
+    single_cell_expression_data = test_data$single_cell_data,
+    full_stats = test_data$full_stats,
+    average_importance = test_data$average_importance,
+    feature_names = colnames(test_data$shap),
+    comparison_mode = "condition_vs_condition",
+    n_bootstraps = 100L,
+    seed = 64L
+  )
+  scaled_result <- compute_cross_patient_support(
+    shap_matrix = scaled_test_data$shap,
+    shap_feature_values = scaled_test_data$expression,
+    shap_metadata = scaled_test_data$metadata,
+    model_expression_data = scaled_test_data$model_data,
+    single_cell_expression_data = scaled_test_data$single_cell_data,
+    full_stats = scaled_test_data$full_stats,
+    average_importance = scaled_test_data$average_importance,
+    feature_names = colnames(scaled_test_data$shap),
+    comparison_mode = "condition_vs_condition",
+    n_bootstraps = 100L,
+    seed = 64L
+  )
+
+  expect_equal(
+    base_result$diagnostics$shap_importance_support,
+    scaled_result$diagnostics$shap_importance_support
+  )
+  expect_equal(
+    scaled_result$diagnostics$shap_importance_positive_median,
+    base_result$diagnostics$shap_importance_positive_median * 10
+  )
+})
+
+
 test_that("Two patients per condition are supported without a low-patient warning", {
   test_data <- make_cross_patient_test_data(2L)
 
