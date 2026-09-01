@@ -159,6 +159,8 @@ shapture_config_condition_vs_condition <- list(
   # any valid R color vector with at least 2 colors
   continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
   
+  # requested maximum for model and Cross-patient bootstrap workers;
+  # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
   project_name = NULL
 )
@@ -247,6 +249,8 @@ shapture_config_one_vs_others <- list(
   # any valid R color vector with at least 2 colors
   continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
   
+  # requested maximum for model and Cross-patient bootstrap workers;
+  # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
   project_name = NULL
 )

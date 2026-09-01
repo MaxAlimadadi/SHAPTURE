@@ -4,16 +4,31 @@
 \alias{build_shapture_feature_importance_plot}
 \title{Build the top-feature importance plot}
 \usage{
-build_shapture_feature_importance_plot(combined_results, top_feature_show)
+build_shapture_feature_importance_plot(
+  combined_results,
+  top_feature_show,
+  task_what_0 = NULL,
+  task_what_1 = NULL,
+  group_colors = c("darkblue", "darkred")
+)
 }
 \arguments{
 \item{combined_results}{Ranked feature table.}
 
 \item{top_feature_show}{Number of top features to show.}
+
+\item{task_what_0}{Condition 0 label. Supply both condition labels to color
+feature names using the saved \code{Model_expression_pattern} column.}
+
+\item{task_what_1}{Condition 1 label.}
+
+\item{group_colors}{Two group colors: condition 0 then condition 1.}
 }
 \value{
 A ggplot object.
 }
 \description{
-Build the top-feature importance plot
+Feature names use the same model-expression pattern colors as the beeswarm
+when both condition labels are supplied. Scores, feature order, bars, and
+points are unchanged. Calls without condition labels retain plain axis text.
 }

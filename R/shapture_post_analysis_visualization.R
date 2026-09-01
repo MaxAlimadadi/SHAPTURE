@@ -129,12 +129,26 @@ build_shapture_roc_plot <- function(ROC_all, AUC_all, mean_auc) {
 
 #' Build the top-feature importance plot
 #'
+#' Feature names use the same model-expression pattern colors as the beeswarm
+#' when both condition labels are supplied. Scores, feature order, bars, and
+#' points are unchanged. Calls without condition labels retain plain axis text.
+#'
 #' @param combined_results Ranked feature table.
 #' @param top_feature_show Number of top features to show.
+#' @param task_what_0 Condition 0 label. Supply both condition labels to color
+#'   feature names using the saved `Model_expression_pattern` column.
+#' @param task_what_1 Condition 1 label.
+#' @param group_colors Two group colors: condition 0 then condition 1.
 #'
 #' @return A ggplot object.
 #' @export
-build_shapture_feature_importance_plot <- function(combined_results, top_feature_show) {
+build_shapture_feature_importance_plot <- function(
+    combined_results,
+    top_feature_show,
+    task_what_0 = NULL,
+    task_what_1 = NULL,
+    group_colors = c("darkblue", "darkred")
+) {
   top_feature_show <- min(top_feature_show, nrow(combined_results))
   if (!is.finite(top_feature_show) || top_feature_show < 1) {
     stop("top_feature_show must be at least 1.")
@@ -142,7 +156,7 @@ build_shapture_feature_importance_plot <- function(combined_results, top_feature
   combined_results_top <- combined_results[seq_len(top_feature_show), , drop = FALSE]
   combined_results_top$feature <- factor(combined_results_top$feature, levels = rev(combined_results_top$feature))
   
-  ggplot2::ggplot(combined_results_top, ggplot2::aes(x = final_score, y = feature)) +
+  plot <- ggplot2::ggplot(combined_results_top, ggplot2::aes(x = final_score, y = feature)) +
     ggplot2::geom_col(width = 0.15) +
     ggplot2::geom_point(size = 1, color = "blue") +
     ggplot2::xlab("integrated importance score") +
@@ -153,6 +167,65 @@ build_shapture_feature_importance_plot <- function(combined_results, top_feature
       axis.text.x = ggplot2::element_text(colour = "black", size = 10),
       axis.text.y = ggplot2::element_text(colour = "black", size = 8),
       plot.title = ggplot2::element_text(size = 6)
+    )
+
+  if (is.null(task_what_0) && is.null(task_what_1)) {
+    return(plot)
+  }
+  valid_condition_label <- function(x) {
+    is.character(x) && length(x) == 1L && !is.na(x) && nzchar(x)
+  }
+  if (!valid_condition_label(task_what_0) ||
+      !valid_condition_label(task_what_1) || identical(task_what_0, task_what_1)) {
+    stop("Supply two distinct condition labels in task_what_0 and task_what_1.")
+  }
+  if (!"Model_expression_pattern" %in% colnames(combined_results_top)) {
+    stop("combined_results must contain Model_expression_pattern to color feature names.")
+  }
+  group_colors <- validate_color_vector(group_colors, "group_colors", exact_length = 2)
+  pattern_colors <- model_expression_pattern_colors(task_what_0, task_what_1, group_colors)
+  pattern_labels <- model_expression_pattern_plot_labels(task_what_0, task_what_1)
+  feature_names <- as.character(combined_results_top$feature)
+  feature_colors <- unname(pattern_colors[as.character(combined_results_top$Model_expression_pattern)])
+  feature_colors[is.na(feature_colors)] <- "grey55"
+  feature_labels <- stats::setNames(
+    paste0("<span style='color:", feature_colors, "'>", escape_shapture_html(feature_names), "</span>"),
+    feature_names
+  )
+  legend_data <- data.frame(
+    feature = factor(rep(feature_names[1], length(pattern_labels)), levels = levels(combined_results_top$feature)),
+    final_score = combined_results_top$final_score[1],
+    Model_expression_pattern = names(pattern_labels),
+    stringsAsFactors = FALSE
+  )
+
+  plot +
+    ggplot2::scale_y_discrete(labels = feature_labels) +
+    ggplot2::geom_point(
+      data = legend_data,
+      ggplot2::aes(x = final_score, y = feature, fill = Model_expression_pattern),
+      inherit.aes = FALSE,
+      shape = 22,
+      alpha = 0,
+      show.legend = TRUE
+    ) +
+    ggplot2::scale_fill_manual(
+      values = pattern_colors,
+      breaks = names(pattern_labels),
+      labels = unname(pattern_labels),
+      drop = FALSE
+    ) +
+    ggplot2::labs(fill = "Model\nexpression\npattern") +
+    ggplot2::guides(fill = ggplot2::guide_legend(
+      ncol = 1,
+      override.aes = list(alpha = 1, size = 3)
+    )) +
+    ggplot2::theme(
+      axis.text.y = ggtext::element_markdown(size = 8),
+      legend.position = "bottom",
+      legend.title = ggplot2::element_text(size = 7),
+      legend.text = ggplot2::element_text(size = 7),
+      legend.key.size = grid::unit(0.3, "cm")
     )
 }
 

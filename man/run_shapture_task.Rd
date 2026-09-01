@@ -25,6 +25,7 @@ run_shapture_task(
   iteration_no,
   gene_fraction_per_iteration,
   cross_patient_bootstraps,
+  n_cores,
   analysis_seed,
   metacell_seed,
   top_feature_label,
@@ -89,6 +90,9 @@ each coverage-aware model iteration.}
 
 \item{cross_patient_bootstraps}{Number of patient-block bootstrap replicates
 used for Cross-patient Support.}
+
+\item{n_cores}{Requested maximum workers for model fitting and Cross-patient
+bootstrapping. Bootstrap safeguards may reduce this value or run serially.}
 
 \item{analysis_seed}{Positive integer reproducibility root for all stochastic
 task stages.}

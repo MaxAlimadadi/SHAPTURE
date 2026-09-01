@@ -1,3 +1,18 @@
+# SHAPTURE 0.0.0.9008
+
+- Cross-patient bootstraps can now use memory-aware PSOCK parallel execution
+  on macOS, Windows, and Linux. The runtime limits workers using available CPU
+  and RAM, validates a real worker before the full run, recycles workers in
+  small batches, and replays the complete bootstrap serially after any setup,
+  worker, or output-validation failure. Bootstrap plans, formulas, and results
+  are unchanged.
+- Each task now records the applied bootstrap backend, worker limits, memory
+  estimates, timing, and any fallback in
+  `docs/cross_patient_bootstrap_runtime.csv` and `run_summary.csv`.
+- Feature-importance plots now color feature names by the saved model-expression
+  pattern, using the same group colors and legend order as the beeswarm.
+  Scoring, ranking, and plotted score values are unchanged.
+
 # SHAPTURE 0.0.0.9007
 
 - Replaced across-feature min-max scaling in the evidence score with a fixed

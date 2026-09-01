@@ -70,6 +70,9 @@ The main script defines a set of user-controlled parameters.
   in each coverage-aware model fit; default is `0.30`
 - `cross_patient_bootstraps`: number of patient-block bootstrap replicates used
   for Cross-patient Support; default is `500L`
+- `n_cores`: requested maximum workers for repeated model fitting and
+  Cross-patient bootstrapping; the bootstrap stage can automatically use fewer
+  workers when CPU or RAM is limited
 - `analysis_seed`: reproducibility root for all stochastic stages; default is
   `123L`
 - `patient_split_strategy`: `shared_patients` (default) or `unseen_patients`
@@ -88,6 +91,23 @@ The main script defines a set of user-controlled parameters.
   - `safe`
 
 `safe` mode writes iteration-level SHAP payloads to temporary disk chunks, rebuilds pooled SHAP summaries one chunk at a time, and deletes the temporary files automatically at the end. It also avoids sending full per-iteration model-fit objects back through parallel workers. It is designed to reduce peak RAM use without changing the final result tables or figures.
+
+### Parallel execution safeguards
+Model-fitting PSOCK workers are task-specific and are stopped before
+Cross-patient bootstrapping starts. For the bootstrap stage, SHAPTURE treats
+`n_cores` as a maximum rather than a promise: it checks portable CPU limits,
+installed and currently available RAM, the main R-process memory use, and a
+task-specific worker-memory estimate. It reserves at least 25% of installed RAM
+or 4 GiB, whichever is larger.
+
+When at least two workers appear safe, SHAPTURE runs one real worker health
+check and recalculates the safe worker count from the measured worker memory.
+PSOCK workers are then recycled after at most five bootstrap replicates to
+limit memory growth. The same controller is used on macOS, Windows, and Linux.
+If cluster setup, the health check, a worker batch, or result validation fails,
+SHAPTURE discards partial parallel output and replays every deterministic
+bootstrap plan serially. No score definition, seed, resampling unit, or
+bootstrap formula changes between the two execution paths.
 
 Both `full` and `safe` modes use the same interpretation rule: if one cell/metacell is evaluated in multiple held-out test sets, its SHAP values and model-input feature values are averaged before feature-level interpretation summaries are calculated. When a gene was not included in a feature-bagged iteration, that missing cell-gene SHAP value remains missing and is not treated as zero.
 
@@ -480,6 +500,7 @@ Cross-patient support is available with at least two patients in each condition 
 - `docs/stats_interpretation.csv`
 - `docs/cross_patient_support_method_used.csv`
 - `docs/cross_patient_support_by_feature.csv`
+- `docs/cross_patient_bootstrap_runtime.csv`
 - `docs/model_reproducibility_by_feature.csv`
 - `docs/model_reproducibility_by_iteration.csv`
 - `docs/score_anchor_summary.csv`
@@ -496,10 +517,11 @@ Each completed analysis task writes:
 - fitted values / SHAP summaries
 - interpretation summaries such as `stats_interpretation.csv`
 - Cross-patient support method and per-feature bootstrap diagnostics
+- Cross-patient bootstrap backend, resource guard, timing, and fallback audit
 - a full resolved parameter record in `shapture_config_used.csv`
 - publication-style plots
 
-The `feature_importance` plot title intentionally displays the positive/right level first, as `condition_1/target vs condition_0/others`, so the title matches the model direction being prioritized.
+The `feature_importance` plot displays the top features in final-score order. Feature names use the same saved `Model_expression_pattern` colors as the beeswarm: `group_colors[2]` for condition 1/target and `group_colors[1]` for condition 0/others. Its legend lists condition 1 first, with the full pattern labels on two lines. The title shows the top-feature count; the comparison name remains in the result folder name.
 
 ---
 

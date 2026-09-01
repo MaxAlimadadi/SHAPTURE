@@ -75,7 +75,10 @@ for (temp_folder in my_folders) {
   
   feature_importance_plot <- build_shapture_feature_importance_plot(
     combined_results = combined_results,
-    top_feature_show = top_feature_show
+    top_feature_show = top_feature_show,
+    task_what_0 = viz$task_what_0,
+    task_what_1 = viz$task_what_1,
+    group_colors = viz$group_colors
   )
   plot_objects$feature_importance <- feature_importance_plot
   

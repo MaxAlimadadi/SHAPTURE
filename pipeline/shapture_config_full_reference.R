@@ -165,7 +165,8 @@ shapture_config_full <- list(
   #
   # ---- Parallel execution ----
   #
-  # number of parallel model-fitting workers; use 1 for sequential execution
+  # requested maximum workers for model fitting and Cross-patient bootstrapping;
+  # the bootstrap stage automatically uses fewer workers if CPU or RAM is limited
   n_cores = 14,
   
   #

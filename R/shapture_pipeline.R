@@ -1183,6 +1183,8 @@ filter_features_by_min_pct <- function(
 #'   each coverage-aware model iteration.
 #' @param cross_patient_bootstraps Number of patient-block bootstrap replicates
 #'   used for Cross-patient Support.
+#' @param n_cores Requested maximum workers for model fitting and Cross-patient
+#'   bootstrapping. Bootstrap safeguards may reduce this value or run serially.
 #' @param analysis_seed Positive integer reproducibility root for all stochastic
 #'   task stages.
 #' @param metacell_seed Seed used for grouped metacell construction, or `NA`
@@ -1245,6 +1247,7 @@ run_shapture_task <- function(
     iteration_no,
     gene_fraction_per_iteration,
     cross_patient_bootstraps,
+    n_cores,
     analysis_seed,
     metacell_seed,
     top_feature_label,
@@ -1616,6 +1619,19 @@ run_shapture_task <- function(
   }
   
   file.create("docs/model performance.txt")
+
+  model_cluster <- NULL
+  model_workers_stopped <- TRUE
+  on.exit({
+    safe_stop_shapture_cluster(model_cluster)
+    foreach::registerDoSEQ()
+  }, add = TRUE)
+  if (n_cores > 1L) {
+    model_cluster <- parallel::makePSOCKcluster(n_cores)
+    doParallel::registerDoParallel(model_cluster)
+  } else {
+    foreach::registerDoSEQ()
+  }
   
   iter_results <- foreach::foreach(
     temp_iter = seq_len(iteration_no),
@@ -1928,6 +1944,14 @@ run_shapture_task <- function(
       )
     })
   }
+
+  model_workers_stopped <- safe_stop_shapture_cluster(model_cluster)
+  if (!isTRUE(model_workers_stopped)) {
+    stop("Model workers could not be stopped safely before Cross-patient bootstrapping.")
+  }
+  model_cluster <- NULL
+  foreach::registerDoSEQ()
+  gc(verbose = FALSE)
   
   fit_list <- lapply(iter_results, `[[`, "fit")
   pred_list <- lapply(iter_results, `[[`, "pred")
@@ -2312,8 +2336,12 @@ run_shapture_task <- function(
     shap_expr_cor_cutoff = shap_expr_cor_cutoff,
     expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
     n_bootstraps = cross_patient_bootstraps,
-    seed = seed_plan$cross_patient_bootstrap_seed
+    seed = seed_plan$cross_patient_bootstrap_seed,
+    n_cores = n_cores,
+    worker_log_file = file.path(getwd(), "docs", "cross_patient_bootstrap_workers.log")
   )
+  cross_patient_result$runtime$model_workers_stopped_before_bootstrap <-
+    model_workers_stopped
   support_match <- match(stats_results$feature, cross_patient_result$support$feature)
   stats_results$cross_patient_support <- cross_patient_result$support$cross_patient_support[support_match]
   stats_results$cross_patient_support_available <- cross_patient_result$available
@@ -2419,6 +2447,11 @@ run_shapture_task <- function(
   write.csv(
     cross_patient_result$diagnostics,
     "docs/cross_patient_support_by_feature.csv",
+    row.names = FALSE
+  )
+  write.csv(
+    cross_patient_result$runtime,
+    "docs/cross_patient_bootstrap_runtime.csv",
     row.names = FALSE
   )
   
@@ -2582,6 +2615,13 @@ run_shapture_task <- function(
     cross_patient_support_method = "patient_block_bootstrap",
     cross_patient_support_bootstraps_requested = cross_patient_result$n_bootstraps_requested,
     cross_patient_support_bootstraps_valid = cross_patient_result$n_bootstraps_valid_task,
+    cross_patient_bootstrap_backend = cross_patient_result$runtime$backend,
+    cross_patient_bootstrap_workers_requested = cross_patient_result$runtime$requested_workers,
+    cross_patient_bootstrap_workers_selected = cross_patient_result$runtime$selected_workers,
+    cross_patient_bootstrap_memory_safe_workers = cross_patient_result$runtime$memory_safe_workers,
+    cross_patient_bootstrap_fallback_used = cross_patient_result$runtime$fallback_used,
+    cross_patient_bootstrap_fallback_reason = cross_patient_result$runtime$fallback_reason,
+    cross_patient_bootstrap_total_seconds = cross_patient_result$runtime$total_seconds,
     pooled_auc = as.numeric(roc_plot_all_iteration$auc),
     mean_iteration_auc = mean_auc,
     sd_iteration_auc = sd_auc,
@@ -2782,7 +2822,9 @@ run_shapture_task <- function(
 #' @param group_colors Two unnamed colors used for left/right group displays.
 #' @param continuous_colors Continuous color palette used for SHAP/expression
 #'   gradients.
-#' @param n_cores Number of parallel model-fitting workers.
+#' @param n_cores Requested maximum workers for model fitting and Cross-patient
+#'   bootstrapping. Runtime CPU and RAM safeguards may reduce the bootstrap
+#'   worker count or select serial bootstrapping.
 #' @param metacell_min_cells_to_build Minimum rows before metacell building.
 #' @param metacell_min_cells_per_metacell Minimum rows per metacell.
 #' @param metacell_max_cells_per_metacell Maximum rows per metacell.
@@ -2893,6 +2935,11 @@ run_shapture_pipeline <- function(
     stop("cross_patient_bootstraps must be one positive whole number.")
   }
   cross_patient_bootstraps <- as.integer(cross_patient_bootstraps)
+  if (!is.numeric(n_cores) || length(n_cores) != 1L ||
+      !is.finite(n_cores) || n_cores < 1L || n_cores != floor(n_cores)) {
+    stop("n_cores must be one positive whole number.")
+  }
+  n_cores <- as.integer(n_cores)
   if (!is.numeric(feature_min_pct) ||
       length(feature_min_pct) != 1 ||
       is.na(feature_min_pct) ||
@@ -3030,16 +3077,7 @@ run_shapture_pipeline <- function(
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
   
-  if (n_cores > 1) {
-    cl <- parallel::makePSOCKcluster(n_cores)
-    doParallel::registerDoParallel(cl)
-    on.exit({
-      parallel::stopCluster(cl)
-      foreach::registerDoSEQ()
-    }, add = TRUE)
-  } else {
-    foreach::registerDoSEQ()
-  }
+  foreach::registerDoSEQ()
   
   dataset_all_metacell <- dataset_all_work
   metacell_seed <- if (analysis_unit_type == "metacell") {
@@ -3127,6 +3165,7 @@ run_shapture_pipeline <- function(
       iteration_no = iteration_no,
       gene_fraction_per_iteration = gene_fraction_per_iteration,
       cross_patient_bootstraps = cross_patient_bootstraps,
+      n_cores = n_cores,
       analysis_seed = analysis_seed,
       metacell_seed = metacell_seed,
       top_feature_label = top_feature_label,

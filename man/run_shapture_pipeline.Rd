@@ -159,7 +159,9 @@ correlations.}
 \item{continuous_colors}{Continuous color palette used for SHAP/expression
 gradients.}
 
-\item{n_cores}{Number of parallel model-fitting workers.}
+\item{n_cores}{Requested maximum workers for model fitting and Cross-patient
+bootstrapping. Runtime CPU and RAM safeguards may reduce the bootstrap
+worker count or select serial bootstrapping.}
 
 \item{metacell_min_cells_to_build}{Minimum rows before metacell building.}
 

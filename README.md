@@ -54,6 +54,16 @@ threshold. The number of replicates is controlled by
 `cross_patient_bootstraps`. If there are too few patients, this component is
 left unavailable and the remaining four score weights are renormalized.
 
+Cross-patient bootstrap calculations can run in parallel without changing the
+patient resampling plans or score calculations. `n_cores` is the requested
+maximum for both repeated model fitting and this bootstrap stage. Before
+bootstrapping, SHAPTURE checks the CPU and currently available RAM, keeps at
+least 25% of installed memory or 4 GiB in reserve, and may lower the worker
+count or use serial execution. A one-worker health check measures real memory
+use, workers are recycled after at most five bootstrap replicates, and any
+parallel setup, worker, or output-validation failure triggers a complete serial
+replay. This avoids mixing partial parallel and serial results.
+
 Model reproducibility is calculated across repeated model fits from three
 equally weighted measurements: recurrence-adjusted raw mean absolute
 SHAP-importance retention, signed delta-SHAP retention, and Value-SHAP
@@ -196,6 +206,20 @@ Keep the same input data and row order, package versions, settings, and
 Every completed task records its complete seed plan in
 `docs/reproducibility_seeds.csv`.
 
+### Parallel execution
+
+Set `n_cores` to the maximum number of workers you want SHAPTURE to use. Model
+workers are stopped before Cross-patient bootstrapping begins, so the two
+parallel stages do not coexist in memory. The bootstrap controller then selects
+the smaller of the requested, CPU-available, and memory-safe worker counts.
+This controller uses PSOCK workers, which are portable across macOS, Windows,
+and Linux. If safe parallel execution cannot be confirmed, the task continues
+serially with the same deterministic bootstrap plans.
+
+The applied backend, resource estimates, worker count, timing, and fallback
+reason are saved in `docs/cross_patient_bootstrap_runtime.csv`. These execution
+details are also summarized in `Integrated_adaptive_scoring_results/run_summary.csv`.
+
 Every task also records the fixed SHAP-importance and absolute-log2FC anchors
 in `docs/score_anchor_summary.csv`. The legacy `score_scaling_method` values
 `"winsorized"` and `"minmax"` remain accepted so older scripts do not fail,
@@ -272,8 +296,11 @@ Each analysis task creates a result folder with:
 - `docs/patient_split_summary.csv`: requested and applied patient split strategy
 - `docs/patient_sampling_coverage_summary.csv`: patient eligibility and rotation
 - `docs/patient_feature_coverage_summary.csv`: held-out patient coverage by gene
+- `docs/cross_patient_bootstrap_runtime.csv`: applied serial or parallel
+  bootstrap backend, CPU/RAM safeguards, timing, and fallback status
 - `Integrated_adaptive_scoring_results/run_summary.csv`: compact task settings,
-  patient split outcome, coverage, feature counts, and model performance
+  patient split outcome, coverage, feature counts, model performance, and
+  Cross-patient bootstrap runtime summary
 - `Integrated_adaptive_scoring_results/`: summary figures
 - `SHAP_only/`: SHAP-only condition summaries
 
@@ -291,6 +318,11 @@ pipeline/run_shapture_visualization.R
 Set `result_dir` to a completed result folder, then rerun the script. This
 lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
+
+Feature names in the beeswarm and feature-importance plots use the same
+`Model_expression_pattern` colors: `group_colors[2]` for condition 1/target
+and `group_colors[1]` for condition 0/others. Both legends list condition 1
+first. These colors describe the saved class assignment, not the score magnitude.
 
 ## Global visualization across split levels
 

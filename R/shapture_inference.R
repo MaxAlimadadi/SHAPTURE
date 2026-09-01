@@ -397,6 +397,324 @@ compute_model_reproducibility <- function(
 }
 
 
+#' Build deterministic patient-block bootstrap plans
+#'
+#' @param data_sources Named SHAP, model-unit, and original-cell data sources.
+#' @param comparison_mode Comparison mode.
+#' @param patient_ids_by_condition Patient IDs for condition 0 and condition 1.
+#' @param common_patient_ids Patient IDs shared across data sources.
+#' @param n_bootstraps Number of plans.
+#' @param seed Bootstrap seed.
+#'
+#' @return List containing ordered plans, timing, and the resulting RNG state.
+#' @noRd
+build_cross_patient_bootstrap_plans <- function(
+    data_sources,
+    comparison_mode,
+    patient_ids_by_condition,
+    common_patient_ids,
+    n_bootstraps,
+    seed
+) {
+  index_maps <- lapply(data_sources, function(source_data) {
+    sample_id <- as.character(source_data$sample_id)
+    condition <- as.character(source_data$condition)
+    key <- if (comparison_mode == "condition_vs_condition") {
+      paste(sample_id, condition, sep = "___")
+    } else {
+      sample_id
+    }
+    list(rows = split(seq_along(key), key), condition = condition)
+  })
+
+  draw_valid_plan <- function(max_attempts = 100L) {
+    for (attempt in seq_len(max_attempts)) {
+      if (comparison_mode == "condition_vs_condition") {
+        sampled_blocks <- do.call(rbind, lapply(seq_along(patient_ids_by_condition), function(i) {
+          level <- as.character(i - 1L)
+          ids <- patient_ids_by_condition[[i]]
+          data.frame(
+            sample_id = sample(ids, size = length(ids), replace = TRUE),
+            condition = level,
+            stringsAsFactors = FALSE
+          )
+        }))
+        sampled_keys <- paste(sampled_blocks$sample_id, sampled_blocks$condition, sep = "___")
+      } else {
+        sampled_keys <- sample(
+          common_patient_ids,
+          size = length(common_patient_ids),
+          replace = TRUE
+        )
+      }
+
+      source_indices <- lapply(index_maps, function(index_map) {
+        unlist(index_map$rows[sampled_keys], use.names = FALSE)
+      })
+      source_valid <- vapply(seq_along(index_maps), function(i) {
+        index <- source_indices[[i]]
+        length(index) > 0L &&
+          all(c("0", "1") %in% index_maps[[i]]$condition[index])
+      }, logical(1))
+      if (all(source_valid)) {
+        return(source_indices)
+      }
+    }
+    NULL
+  }
+
+  set.seed(seed)
+  started <- unname(proc.time()[["elapsed"]])
+  plans <- lapply(seq_len(n_bootstraps), function(i) draw_valid_plan())
+  list(
+    plans = plans,
+    plan_seconds = unname(proc.time()[["elapsed"]]) - started,
+    rng_state = .Random.seed
+  )
+}
+
+
+#' Build the Cross-patient scientific bootstrap kernel
+#'
+#' @param shap_matrix Unit-averaged SHAP matrix.
+#' @param shap_feature_values Unit-averaged feature-value matrix.
+#' @param model_expression_data Model-unit expression data.
+#' @param single_cell_expression_data Original-cell expression data.
+#' @param full_stats Full-data statistics aligned to `feature_names`.
+#' @param feature_names Fixed feature list.
+#' @param feature_min_log2FC Minimum retained log2FC magnitude.
+#' @param expression_log2FC_abs_median_anchor Fixed log2FC anchor.
+#' @param chunk_size Number of features processed together.
+#'
+#' @return Self-contained bootstrap kernel.
+#' @noRd
+make_cross_patient_bootstrap_kernel <- function(
+    shap_matrix,
+    shap_feature_values,
+    model_expression_data,
+    single_cell_expression_data,
+    full_stats,
+    feature_names,
+    feature_min_log2FC,
+    expression_log2FC_abs_median_anchor,
+    chunk_size = 64L
+) {
+  worker <- new.env(parent = baseenv())
+  worker$n_features <- length(feature_names)
+  worker$feature_names <- feature_names
+  worker$feature_chunks <- split(
+    seq_along(feature_names),
+    ceiling(seq_along(feature_names) / as.integer(chunk_size))
+  )
+  worker$shap_matrix <- shap_matrix
+  worker$shap_feature_values <- shap_feature_values
+  worker$model_expression_matrix <- as.matrix(
+    model_expression_data[, feature_names, drop = FALSE]
+  )
+  worker$model_condition_all <- as.character(model_expression_data$condition)
+  worker$shared_expression_data <- identical(
+    model_expression_data,
+    single_cell_expression_data
+  )
+  if (!worker$shared_expression_data) {
+    worker$single_cell_expression_matrix <- as.matrix(
+      single_cell_expression_data[, feature_names, drop = FALSE]
+    )
+    worker$single_cell_condition_all <- as.character(single_cell_expression_data$condition)
+  }
+  worker$full_log2fc <- full_stats$expression_log2FC
+  worker$full_detection_sign <- sign(full_stats$det_diff)
+  worker$feature_min_log2FC <- feature_min_log2FC
+  worker$expression_log2FC_abs_median_anchor <- expression_log2FC_abs_median_anchor
+  worker$head <- utils::head
+
+  helper_names <- c(
+    "compute_dynamic_pseudocount",
+    "apply_median_anchor_transform",
+    "compute_within_condition_expression_consistency"
+  )
+  helper_functions <- list(
+    compute_dynamic_pseudocount,
+    apply_median_anchor_transform,
+    compute_within_condition_expression_consistency
+  )
+  for (i in seq_along(helper_names)) {
+    helper <- helper_functions[[i]]
+    environment(helper) <- worker
+    assign(helper_names[[i]], helper, envir = worker)
+  }
+
+  kernel <- function(source_indices) {
+    importance <- rep(NA_real_, n_features)
+    expression <- rep(NA_real_, n_features)
+    value_shap <- rep(NA_real_, n_features)
+    if (is.null(source_indices)) {
+      return(list(
+        importance = importance,
+        expression = expression,
+        value_shap = value_shap,
+        valid = FALSE
+      ))
+    }
+
+    shap_index <- source_indices$shap
+    model_index <- source_indices$model
+    single_cell_index <- source_indices$single_cell
+
+    for (chunk in feature_chunks) {
+      importance[chunk] <- colMeans(
+        abs(shap_matrix[shap_index, chunk, drop = FALSE]),
+        na.rm = TRUE
+      )
+    }
+    value_shap[] <- vapply(seq_len(n_features), function(j) {
+      x <- shap_feature_values[shap_index, j]
+      s <- shap_matrix[shap_index, j]
+      valid <- is.finite(x) & is.finite(s)
+      if (sum(valid) < 3L ||
+          length(unique(x[valid])) < 2L ||
+          length(unique(s[valid])) < 2L) {
+        return(NA_real_)
+      }
+      suppressWarnings(stats::cor(x[valid], s[valid], method = "spearman"))
+    }, numeric(1))
+
+    model_matrix <- model_expression_matrix[model_index, , drop = FALSE]
+    model_condition <- model_condition_all[model_index]
+    pseudocount <- compute_dynamic_pseudocount(
+      model_matrix,
+      fraction = 0.01,
+      fallback = 1e-6
+    )
+    mean_0 <- rep(NA_real_, n_features)
+    mean_1 <- rep(NA_real_, n_features)
+    for (chunk in feature_chunks) {
+      mean_0[chunk] <- colMeans(
+        model_matrix[model_condition == "0", chunk, drop = FALSE],
+        na.rm = TRUE
+      )
+      mean_1[chunk] <- colMeans(
+        model_matrix[model_condition == "1", chunk, drop = FALSE],
+        na.rm = TRUE
+      )
+    }
+    bootstrap_log2fc <- log2((mean_1 + pseudocount) / (mean_0 + pseudocount))
+    log2fc_retained <- ifelse(
+      is.finite(bootstrap_log2fc) &
+        abs(bootstrap_log2fc) >= feature_min_log2FC &
+        sign(bootstrap_log2fc) == sign(full_log2fc),
+      abs(bootstrap_log2fc),
+      0
+    )
+    log2fc_score <- apply_median_anchor_transform(
+      log2fc_retained,
+      anchor = expression_log2FC_abs_median_anchor,
+      component_name = "bootstrap absolute expression log2FC"
+    )
+
+    if (shared_expression_data && identical(model_index, single_cell_index)) {
+      single_cell_matrix <- model_matrix
+      single_cell_condition <- model_condition
+    } else if (shared_expression_data) {
+      single_cell_matrix <- model_expression_matrix[single_cell_index, , drop = FALSE]
+      single_cell_condition <- model_condition_all[single_cell_index]
+    } else {
+      single_cell_matrix <- single_cell_expression_matrix[single_cell_index, , drop = FALSE]
+      single_cell_condition <- single_cell_condition_all[single_cell_index]
+    }
+
+    detection_0 <- rep(NA_real_, n_features)
+    detection_1 <- rep(NA_real_, n_features)
+    consistency_score <- rep(NA_real_, n_features)
+    both_zero <- logical(n_features)
+    for (chunk in feature_chunks) {
+      chunk_matrix <- single_cell_matrix[, chunk, drop = FALSE]
+      detection_0[chunk] <- colMeans(
+        chunk_matrix[single_cell_condition == "0", , drop = FALSE] > 0
+      )
+      detection_1[chunk] <- colMeans(
+        chunk_matrix[single_cell_condition == "1", , drop = FALSE] > 0
+      )
+      consistency_result <- tryCatch(
+        compute_within_condition_expression_consistency(
+          expression_data = chunk_matrix,
+          condition = single_cell_condition,
+          condition_levels = c("0", "1"),
+          upper_quantile = 0.99,
+          min_positive_cells = 20L,
+          pseudocount_fraction = 0.01,
+          pseudocount_fallback = 1e-6
+        ),
+        error = function(e) NULL
+      )
+      if (is.null(consistency_result)) {
+        return(list(
+          importance = rep(NA_real_, n_features),
+          expression = expression,
+          value_shap = rep(NA_real_, n_features),
+          valid = FALSE
+        ))
+      }
+      consistency_match <- match(feature_names[chunk], consistency_result$feature)
+      consistency_score[chunk] <-
+        consistency_result$within_condition_consistency_raw[consistency_match]
+      both_zero[chunk] <-
+        consistency_result$both_conditions_all_zero[consistency_match]
+    }
+    if (any(!is.finite(consistency_score)) ||
+        any(consistency_score < 0 | consistency_score > 1)) {
+      return(list(
+        importance = rep(NA_real_, n_features),
+        expression = expression,
+        value_shap = rep(NA_real_, n_features),
+        valid = FALSE
+      ))
+    }
+
+    bootstrap_detection_diff <- detection_1 - detection_0
+    detection_retained <- ifelse(
+      full_detection_sign != 0 &
+        is.finite(bootstrap_detection_diff) &
+        sign(bootstrap_detection_diff) == full_detection_sign,
+      abs(bootstrap_detection_diff),
+      0
+    )
+    detection_score <- pmin(1, pmax(0, detection_retained))
+    expression <- (log2fc_score + detection_score + consistency_score) / 3
+    expression[both_zero] <- 0
+    list(
+      importance = importance,
+      expression = expression,
+      value_shap = value_shap,
+      valid = TRUE
+    )
+  }
+  environment(kernel) <- worker
+  kernel
+}
+
+
+#' Combine ordered Cross-patient bootstrap values
+#'
+#' @param values Ordered bootstrap results.
+#' @param feature_names Fixed feature list.
+#'
+#' @return List containing the three matrices and validity vector.
+#' @noRd
+combine_cross_patient_bootstrap_values <- function(values, feature_names) {
+  payload <- list(
+    importance = do.call(rbind, lapply(values, `[[`, "importance")),
+    expression = do.call(rbind, lapply(values, `[[`, "expression")),
+    value_shap = do.call(rbind, lapply(values, `[[`, "value_shap")),
+    valid = vapply(values, `[[`, logical(1), "valid")
+  )
+  for (name in c("importance", "expression", "value_shap")) {
+    colnames(payload[[name]]) <- feature_names
+  }
+  payload
+}
+
+
 #' Compute Cross-patient support by patient-block bootstrap
 #'
 #' Patient blocks are resampled with replacement. SHAP importance, Expression
@@ -423,8 +741,12 @@ compute_model_reproducibility <- function(
 #'   anchor fitted once from the full pre-pattern candidate-feature set.
 #' @param n_bootstraps Number of patient-block bootstrap replicates.
 #' @param seed Random seed.
+#' @param n_cores Requested maximum Cross-patient bootstrap workers. Runtime
+#'   CPU and memory safeguards may reduce this value or select serial execution.
+#' @param worker_log_file Optional PSOCK worker-output file.
 #'
-#' @return List containing per-feature support, diagnostics, and task metadata.
+#' @return List containing per-feature support, diagnostics, task metadata, and
+#'   a runtime execution summary.
 #' @keywords internal
 compute_cross_patient_support <- function(
     shap_matrix,
@@ -440,13 +762,20 @@ compute_cross_patient_support <- function(
     shap_expr_cor_cutoff = 0.25,
     expression_log2FC_abs_median_anchor = NULL,
     n_bootstraps = 1000L,
-    seed = 42L
+    seed = 42L,
+    n_cores = 1L,
+    worker_log_file = NULL
 ) {
   comparison_mode <- match.arg(comparison_mode)
   n_bootstraps <- as.integer(n_bootstraps)
   if (!is.finite(n_bootstraps) || n_bootstraps < 1L) {
     stop("n_bootstraps must be a positive integer.")
   }
+  if (!is.numeric(n_cores) || length(n_cores) != 1L ||
+      !is.finite(n_cores) || n_cores < 1L || n_cores != floor(n_cores)) {
+    stop("n_cores must be one positive whole number.")
+  }
+  n_cores <- as.integer(n_cores)
 
   feature_names <- unique(as.character(feature_names))
   if (length(feature_names) == 0) {
@@ -543,7 +872,7 @@ compute_cross_patient_support <- function(
     unavailable_reason <- if (support_available) NA_character_ else "insufficient patients"
   }
 
-  unavailable_result <- function(reason) {
+  unavailable_result <- function(reason, runtime = NULL) {
     support_table <- data.frame(
       feature = feature_names,
       cross_patient_support = NA_real_,
@@ -572,7 +901,8 @@ compute_cross_patient_support <- function(
       n_patients_condition1 = patient_counts[2],
       n_patients_total = length(common_patient_ids),
       n_bootstraps_requested = n_bootstraps,
-      n_bootstraps_valid_task = 0L
+      n_bootstraps_valid_task = 0L,
+      runtime = runtime %||% unavailable_cross_patient_runtime(n_cores, reason)
     )
   }
 
@@ -586,152 +916,48 @@ compute_cross_patient_support <- function(
   }
 
   n_features <- length(feature_names)
-  importance_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
-  expression_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
-  value_shap_bootstrap <- matrix(NA_real_, nrow = n_bootstraps, ncol = n_features)
-  colnames(importance_bootstrap) <- feature_names
-  colnames(expression_bootstrap) <- feature_names
-  colnames(value_shap_bootstrap) <- feature_names
-
-  build_source_indices <- function(source_data, sampled_blocks) {
-    unlist(lapply(seq_len(nrow(sampled_blocks)), function(i) {
-      which(
-        as.character(source_data$sample_id) == sampled_blocks$sample_id[i] &
-          if (comparison_mode == "condition_vs_condition") {
-            as.character(source_data$condition) == sampled_blocks$condition[i]
-          } else {
-            TRUE
-          }
-      )
-    }), use.names = FALSE)
-  }
-
-  draw_valid_bootstrap <- function(max_attempts = 100L) {
-    for (attempt in seq_len(max_attempts)) {
-      if (comparison_mode == "condition_vs_condition") {
-        sampled_blocks <- do.call(rbind, lapply(seq_along(patient_ids_by_condition), function(i) {
-          level <- as.character(i - 1L)
-          ids <- patient_ids_by_condition[[i]]
-          data.frame(
-            sample_id = sample(ids, size = length(ids), replace = TRUE),
-            condition = level,
-            stringsAsFactors = FALSE
-          )
-        }))
-      } else {
-        sampled_blocks <- data.frame(
-          sample_id = sample(
-            common_patient_ids,
-            size = length(common_patient_ids),
-            replace = TRUE
-          ),
-          condition = NA_character_,
-          stringsAsFactors = FALSE
-        )
-      }
-
-      source_indices <- lapply(data_sources, build_source_indices, sampled_blocks = sampled_blocks)
-      source_valid <- vapply(seq_along(data_sources), function(i) {
-        idx <- source_indices[[i]]
-        length(idx) > 0 && all(c("0", "1") %in% as.character(data_sources[[i]]$condition[idx]))
-      }, logical(1))
-      if (all(source_valid)) {
-        return(source_indices)
-      }
-    }
-    NULL
-  }
-
-  set.seed(seed)
-  task_bootstrap_valid <- logical(n_bootstraps)
-  for (bootstrap_index in seq_len(n_bootstraps)) {
-    source_indices <- draw_valid_bootstrap()
-    if (is.null(source_indices)) {
-      next
-    }
-    shap_index <- source_indices$shap
-    model_index <- source_indices$model
-    single_cell_index <- source_indices$single_cell
-
-    bootstrap_importance <- colMeans(abs(shap_matrix[shap_index, , drop = FALSE]), na.rm = TRUE)
-    importance_bootstrap[bootstrap_index, ] <- bootstrap_importance
-
-    value_shap_bootstrap[bootstrap_index, ] <- vapply(seq_len(n_features), function(j) {
-      x <- shap_feature_values[shap_index, j]
-      s <- shap_matrix[shap_index, j]
-      valid <- is.finite(x) & is.finite(s)
-      if (sum(valid) < 3L || length(unique(x[valid])) < 2L || length(unique(s[valid])) < 2L) {
-        return(NA_real_)
-      }
-      suppressWarnings(stats::cor(x[valid], s[valid], method = "spearman"))
-    }, numeric(1))
-
-    model_matrix <- as.matrix(model_expression_data[model_index, feature_names, drop = FALSE])
-    model_condition <- as.character(model_expression_data$condition[model_index])
-    mean_0 <- colMeans(model_matrix[model_condition == "0", , drop = FALSE], na.rm = TRUE)
-    mean_1 <- colMeans(model_matrix[model_condition == "1", , drop = FALSE], na.rm = TRUE)
-    pseudocount <- compute_dynamic_pseudocount(model_matrix, fraction = 0.01, fallback = 1e-6)
-    bootstrap_log2fc <- log2((mean_1 + pseudocount) / (mean_0 + pseudocount))
-    log2fc_retained <- ifelse(
-      is.finite(bootstrap_log2fc) &
-        abs(bootstrap_log2fc) >= feature_min_log2FC &
-        sign(bootstrap_log2fc) == sign(full_stats$expression_log2FC),
-      abs(bootstrap_log2fc),
-      0
-    )
-    log2fc_score <- apply_median_anchor_transform(
-      log2fc_retained,
-      anchor = expression_log2FC_abs_median_anchor,
-      component_name = "bootstrap absolute expression log2FC"
-    )
-
-    single_cell_matrix <- as.matrix(
-      single_cell_expression_data[single_cell_index, feature_names, drop = FALSE]
-    )
-    single_cell_condition <- as.character(single_cell_expression_data$condition[single_cell_index])
-    detection_0 <- colMeans(single_cell_matrix[single_cell_condition == "0", , drop = FALSE] > 0)
-    detection_1 <- colMeans(single_cell_matrix[single_cell_condition == "1", , drop = FALSE] > 0)
-    bootstrap_detection_diff <- detection_1 - detection_0
-    full_detection_sign <- sign(full_stats$det_diff)
-    detection_retained <- ifelse(
-      full_detection_sign != 0 &
-        is.finite(bootstrap_detection_diff) &
-        sign(bootstrap_detection_diff) == full_detection_sign,
-      abs(bootstrap_detection_diff),
-      0
-    )
-    detection_score <- pmin(1, pmax(0, detection_retained))
-
-    consistency_result <- tryCatch(
-      compute_within_condition_expression_consistency(
-        expression_data = single_cell_matrix,
-        condition = single_cell_condition,
-        condition_levels = c("0", "1"),
-        upper_quantile = 0.99,
-        min_positive_cells = 20L,
-        pseudocount_fraction = 0.01,
-        pseudocount_fallback = 1e-6
-      ),
-      error = function(e) NULL
-    )
-    if (is.null(consistency_result)) {
-      importance_bootstrap[bootstrap_index, ] <- NA_real_
-      value_shap_bootstrap[bootstrap_index, ] <- NA_real_
-      next
-    }
-    consistency_match <- match(feature_names, consistency_result$feature)
-    consistency_score <- consistency_result$within_condition_consistency_raw[consistency_match]
-    if (any(!is.finite(consistency_score)) ||
-        any(consistency_score < 0 | consistency_score > 1)) {
-      importance_bootstrap[bootstrap_index, ] <- NA_real_
-      value_shap_bootstrap[bootstrap_index, ] <- NA_real_
-      next
-    }
-    bootstrap_expression <- (log2fc_score + detection_score + consistency_score) / 3
-    bootstrap_expression[consistency_result$both_conditions_all_zero[consistency_match]] <- 0
-    expression_bootstrap[bootstrap_index, ] <- bootstrap_expression
-    task_bootstrap_valid[bootstrap_index] <- TRUE
-  }
+  plan_result <- build_cross_patient_bootstrap_plans(
+    data_sources = data_sources,
+    comparison_mode = comparison_mode,
+    patient_ids_by_condition = patient_ids_by_condition,
+    common_patient_ids = common_patient_ids,
+    n_bootstraps = n_bootstraps,
+    seed = seed
+  )
+  kernel <- make_cross_patient_bootstrap_kernel(
+    shap_matrix = shap_matrix,
+    shap_feature_values = shap_feature_values,
+    model_expression_data = model_expression_data,
+    single_cell_expression_data = single_cell_expression_data,
+    full_stats = full_stats,
+    feature_names = feature_names,
+    feature_min_log2FC = feature_min_log2FC,
+    expression_log2FC_abs_median_anchor = expression_log2FC_abs_median_anchor,
+    chunk_size = 64L
+  )
+  memory_estimate <- estimate_cross_patient_worker_memory(
+    kernel = kernel,
+    plans = plan_result$plans,
+    chunk_size = 64L
+  )
+  execution <- run_cross_patient_bootstrap_controller(
+    plans = plan_result$plans,
+    kernel = kernel,
+    requested_workers = n_cores,
+    memory_estimate = memory_estimate,
+    patient_plan_seconds = plan_result$plan_seconds,
+    worker_log_file = worker_log_file,
+    recycle_every = 5L
+  )
+  payload <- combine_cross_patient_bootstrap_values(
+    execution$values,
+    feature_names = feature_names
+  )
+  importance_bootstrap <- payload$importance
+  expression_bootstrap <- payload$expression
+  value_shap_bootstrap <- payload$value_shap
+  task_bootstrap_valid <- payload$valid
+  assign(".Random.seed", plan_result$rng_state, envir = .GlobalEnv)
 
   if (!any(task_bootstrap_valid)) {
     warning(
@@ -739,7 +965,10 @@ compute_cross_patient_support <- function(
       "Final scores use four renormalized components.",
       call. = FALSE
     )
-    return(unavailable_result("no valid patient-block bootstraps"))
+    return(unavailable_result(
+      "no valid patient-block bootstraps",
+      runtime = execution$runtime
+    ))
   }
 
   importance_retention <- t(vapply(seq_len(n_features), function(j) {
@@ -822,7 +1051,8 @@ compute_cross_patient_support <- function(
     n_patients_condition1 = patient_counts[2],
     n_patients_total = length(common_patient_ids),
     n_bootstraps_requested = n_bootstraps,
-    n_bootstraps_valid_task = sum(task_bootstrap_valid)
+    n_bootstraps_valid_task = sum(task_bootstrap_valid),
+    runtime = execution$runtime
   )
 }
 

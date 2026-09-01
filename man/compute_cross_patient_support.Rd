@@ -18,7 +18,9 @@ compute_cross_patient_support(
   shap_expr_cor_cutoff = 0.25,
   expression_log2FC_abs_median_anchor = NULL,
   n_bootstraps = 1000L,
-  seed = 42L
+  seed = 42L,
+  n_cores = 1L,
+  worker_log_file = NULL
 )
 }
 \arguments{
@@ -52,9 +54,15 @@ anchor fitted once from the full pre-pattern candidate-feature set.}
 \item{n_bootstraps}{Number of patient-block bootstrap replicates.}
 
 \item{seed}{Random seed.}
+
+\item{n_cores}{Requested maximum Cross-patient bootstrap workers. Runtime
+CPU and memory safeguards may reduce this value or select serial execution.}
+
+\item{worker_log_file}{Optional PSOCK worker-output file.}
 }
 \value{
-List containing per-feature support, diagnostics, and task metadata.
+List containing per-feature support, diagnostics, task metadata, and
+a runtime execution summary.
 }
 \description{
 Patient blocks are resampled with replacement. SHAP importance, Expression
