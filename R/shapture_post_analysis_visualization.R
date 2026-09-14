@@ -69,6 +69,136 @@ save_shapture_visualization_inputs <- function(
 }
 
 
+#' Find completed SHAPTURE result folders
+#'
+#' Searches the immediate subfolders of an analysis directory and retains only
+#' folders containing the saved table and visualization-input bundle required
+#' by the post-analysis visualization pipeline. Folder names and comparison
+#' modes do not affect discovery.
+#'
+#' @param analysis_root Parent directory containing completed SHAPTURE result
+#'   folders.
+#'
+#' @return A sorted character vector of valid result-folder paths.
+#' @export
+find_shapture_result_folders <- function(analysis_root) {
+  if (!is.character(analysis_root) || length(analysis_root) != 1L ||
+      is.na(analysis_root) || !nzchar(analysis_root) || !dir.exists(analysis_root)) {
+    stop("analysis_root must be an existing directory.")
+  }
+
+  candidate_folders <- list.dirs(
+    path = analysis_root,
+    full.names = TRUE,
+    recursive = FALSE
+  )
+  required_files <- c(
+    file.path("docs", "combined_results.csv"),
+    file.path("docs", "visualization_inputs.rds")
+  )
+  valid_folders <- candidate_folders[vapply(
+    candidate_folders,
+    function(folder) all(file.exists(file.path(folder, required_files))),
+    logical(1)
+  )]
+
+  if (length(valid_folders) == 0L) {
+    stop(
+      "No completed SHAPTURE result folders were found directly inside analysis_root."
+    )
+  }
+
+  sort(valid_folders)
+}
+
+
+#' Calculate an automatic SHAPTURE figure size
+#'
+#' Uses the actual number of displayed features to increase figure dimensions
+#' within plot-specific minimum and maximum bounds. `width_per_feature` and
+#' `height_per_feature` are expressed in inches per feature. The returned values
+#' are converted to centimeters for the beeswarm PNG, whose production script
+#' uses `units = "cm"`.
+#'
+#' @param figure_type Figure layout type. See Details for accepted values.
+#' @param n_features Number of features displayed in the figure.
+#' @param width_per_feature Global horizontal growth in inches per feature.
+#' @param height_per_feature Global vertical growth in inches per feature.
+#'
+#' @return A list containing `width`, `height`, and `units` for the graphics
+#'   device.
+#'
+#' @details
+#' Accepted figure types are `"roc"`, `"feature_importance"`, `"waterfall"`,
+#' `"force"`, `"beeswarm"`, `"density"`, `"score_decomposition"`,
+#' `"component_heatmap"`, `"evidence_heatmap"`, `"shap_vs_expression"`, and
+#' `"value_shap"`. ROC and scatter layouts remain fixed. Density height and
+#' force-plot width use larger internal growth factors suited to their layouts.
+#'
+#' @export
+calculate_shapture_figure_size <- function(
+    figure_type,
+    n_features = 0L,
+    width_per_feature = 0.01,
+    height_per_feature = 0.13
+) {
+  valid_types <- c(
+    "roc", "feature_importance", "waterfall", "force", "beeswarm",
+    "density", "score_decomposition", "component_heatmap",
+    "evidence_heatmap", "shap_vs_expression", "value_shap"
+  )
+  if (!is.character(figure_type) || length(figure_type) != 1L ||
+      is.na(figure_type) || !figure_type %in% valid_types) {
+    stop("figure_type must be one of: ", paste(valid_types, collapse = ", "), ".")
+  }
+  if (!is.numeric(n_features) || length(n_features) != 1L ||
+      !is.finite(n_features) || n_features < 0 || n_features != floor(n_features)) {
+    stop("n_features must be a single non-negative integer.")
+  }
+  for (value_name in c("width_per_feature", "height_per_feature")) {
+    value <- get(value_name)
+    if (!is.numeric(value) || length(value) != 1L ||
+        !is.finite(value) || value < 0) {
+      stop(value_name, " must be a single non-negative number.")
+    }
+  }
+
+  spec <- switch(
+    figure_type,
+    roc = list(7.5, 4.0, 7.5, 7.5, 4.0, 4.0, 0, 0, "in"),
+    feature_importance = list(3.0, 3.0, 3.1, 5.0, 4.0, 30.0, 1, 0.14 / 0.13, "in"),
+    waterfall = list(7.0, 4.0, 7.0, 9.0, 5.0, 30.0, 0.8, 0.14 / 0.13, "in"),
+    force = list(8.0, 4.0, 8.0, 15.0, 4.0, 4.0, 3.5, 0, "in"),
+    beeswarm = list(15.0, 7.0, 15.0, 20.0, 9.0, 60.0, 0.02 / (0.01 * 2.54), 0.36 / (0.13 * 2.54), "cm"),
+    density = list(13.0, 5.0, 13.0, 18.0, 7.0, 50.0, 2, 2, "in"),
+    score_decomposition = list(5.5, 3.5, 5.5, 8.0, 4.5, 30.0, 1, 1, "in"),
+    component_heatmap = list(5.2, 3.5, 5.2, 8.0, 4.5, 30.0, 1, 1, "in"),
+    evidence_heatmap = list(4.0, 3.5, 4.0, 6.0, 4.5, 30.0, 0.8, 1, "in"),
+    shap_vs_expression = list(8.0, 7.0, 8.0, 8.0, 7.0, 7.0, 0, 0, "in"),
+    value_shap = list(8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 0, 0, "in")
+  )
+  names(spec) <- c(
+    "base_width", "base_height", "min_width", "max_width",
+    "min_height", "max_height", "width_multiplier",
+    "height_multiplier", "units"
+  )
+  unit_conversion <- if (identical(spec$units, "cm")) 2.54 else 1
+
+  width <- spec$base_width +
+    width_per_feature * n_features * spec$width_multiplier * unit_conversion
+  height <- spec$base_height +
+    height_per_feature * n_features * spec$height_multiplier * unit_conversion
+  width <- max(spec$min_width, min(spec$max_width, width))
+  height <- max(spec$min_height, min(spec$max_height, height))
+
+  list(
+    width = round(width, 3),
+    height = round(height, 3),
+    units = spec$units
+  )
+}
+
+
 #' Build the pooled ROC plus iteration-AUC panel
 #'
 #' @param ROC_all Held-out prediction table pooled across iterations.

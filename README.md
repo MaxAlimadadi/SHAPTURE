@@ -319,6 +319,26 @@ Set `result_dir` to a completed result folder, then rerun the script. This
 lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
 
+The editable settings near the top of the script include
+`top_feature_show`, `top_feature_label`, and `top_feature_show_extended`.
+Figures whose layout depends on feature count are sized automatically from the
+actual number displayed. `width_per_feature` and `height_per_feature` control
+the global growth rate; plot-specific base sizes and minimum/maximum safeguards
+are handled by `calculate_shapture_figure_size()`. To force any figure to an
+exact size, replace the calculated width or height directly in its visible
+`pdf()` or `png()` call.
+
+To redraw several completed result folders with the same settings, edit:
+
+```r
+pipeline/run_shapture_visualization_loop_multiple_folder.R
+```
+
+Set `analysis_root` to their immediate parent directory. The script detects
+subfolders containing both `docs/combined_results.csv` and
+`docs/visualization_inputs.rds`, so it works for condition-vs-condition and
+one-vs-others results without depending on folder names.
+
 Feature names in the beeswarm and feature-importance plots use the same
 `Model_expression_pattern` colors: `group_colors[2]` for condition 1/target
 and `group_colors[1]` for condition 0/others. Both legends list condition 1

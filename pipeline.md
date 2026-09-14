@@ -126,7 +126,9 @@ input data and row order, package versions, and analysis parameters.
 
 ### Post-analysis plotting
 - Analysis always saves result tables and `docs/visualization_inputs.rds`; figures are made afterward with `pipeline/run_shapture_visualization.R`.
-- `pipeline/run_shapture_visualization.R` is an editable figure recipe, not a black-box rendering function. Each figure has a visible plot-function call and a visible `pdf()` or `png()` call where width, height, and dot-label size can be changed directly.
+- `pipeline/run_shapture_visualization.R` is an editable single-folder figure recipe, not a black-box rendering function. `top_feature_show`, `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and `height_per_feature` are defined once near the top.
+- `pipeline/run_shapture_visualization_loop_multiple_folder.R` applies the same editable settings to every immediate child folder containing `docs/combined_results.csv` and `docs/visualization_inputs.rds`. Discovery is independent of comparison mode and folder name.
+- Feature-dependent dimensions are calculated from the actual number displayed. Plot-specific base sizes and bounds remain in `calculate_shapture_figure_size()`, while every visible `pdf()` or `png()` call can still be changed to a fixed width or height directly.
 - `save_plot_objects`: `FALSE` by default inside the visualization script. Set it to `TRUE` there only when you want the reusable ggplot object list saved to `docs/plots.rds`; leaving it off makes large runs faster and uses less disk.
 
 ### Global visualization across split levels
@@ -277,7 +279,7 @@ During analysis, each completed result folder saves `docs/visualization_inputs.r
 
 When `save_plot_objects = TRUE` in the visualization step, the result folder also saves `docs/plots.rds`, which contains the generated plot objects. This makes it possible to reopen a plot later, print it at a different size, or modify themes, fonts, labels, and colors without rerunning the analysis. The default is `FALSE` because saving large plot-object lists can slow down large runs.
 
-Saved figure dimensions and dot-label sizes are controlled directly inside `pipeline/run_shapture_visualization.R`. Edit variables such as `density_plot_width`, `density_plot_height`, or `shap_vs_expression_dot_label_size` immediately before the corresponding `pdf()`/`png()` call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`.
+The single-folder and multiple-folder visualization recipes calculate dimensions automatically. Edit `width_per_feature` and `height_per_feature` near the top to change how feature-dependent figures grow. To use an exact size for one figure, replace `calculated_size$width` or `calculated_size$height` with a number in that figure's visible `pdf()`/`png()` call. Dot-label sizes remain visible beside the corresponding plot call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`.
 
 ---
 
@@ -606,7 +608,7 @@ SHAPTURE/
 │   ├── helper_function.R
 │   ├── run_shapture_analysis.R
 │   ├── run_shapture_visualization.R
-│   ├── run_shapture_visualization_one.vs.others.R
+│   ├── run_shapture_visualization_loop_multiple_folder.R
 │   ├── getting_data_from_sce.R
 │   ├── getting_data_from_Seurat.R
 │   └── shapture_config_full_reference.R

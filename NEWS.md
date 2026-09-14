@@ -1,3 +1,16 @@
+# SHAPTURE 0.0.0.9009
+
+- Renamed the multi-folder plotting recipe to
+  `pipeline/run_shapture_visualization_loop_multiple_folder.R` and made folder
+  discovery independent of comparison mode or folder naming.
+- Both editable visualization recipes now define `top_feature_show`,
+  `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and
+  `height_per_feature` once near the top. Figure dimensions grow from the
+  actual number of displayed features within plot-specific safety limits.
+- Automatic sizing changes only graphics-device dimensions. Saved analysis
+  tables, SHAP values, component scores, final scores, and rankings are
+  unchanged.
+
 # SHAPTURE 0.0.0.9008
 
 - Cross-patient bootstraps can now use memory-aware PSOCK parallel execution
