@@ -44,6 +44,7 @@ top_feature_show_extended <- 100
 
 # Global increase in width and height for each displayed feature, in inches.
 # Plot-specific base sizes and safety limits are handled by the package helper.
+# Density plots instead use an automatic near-square grid with fixed-size panels.
 width_per_feature <- 0.01
 height_per_feature <- 0.13
 
@@ -252,11 +253,13 @@ for (result_dir in result_folders) {
   #####
   # Density plot
   #####
+  density_feature_count <- length(intersect(
+    as.character(utils::head(combined_results$feature, top_feature_show_actual)),
+    colnames(inputs$density$source)
+  ))
   density_plot_size <- calculate_shapture_figure_size(
     figure_type = "density",
-    n_features = top_feature_show_actual,
-    width_per_feature = width_per_feature,
-    height_per_feature = height_per_feature
+    n_features = density_feature_count
   )
 
   density_plot <- build_shapture_density_plot(

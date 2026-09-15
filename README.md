@@ -328,6 +328,12 @@ are handled by `calculate_shapture_figure_size()`. To force any figure to an
 exact size, replace the calculated width or height directly in its visible
 `pdf()` or `png()` call.
 
+Density plots use a separate balanced layout: their actual available features
+are arranged with approximately equal numbers of rows and columns, and the PDF
+allocates consistent physical space to each facet plus horizontal room for the
+legend. The feature-specific axis ranges remain free. For example, 10, 20, 30,
+and 50 features are arranged as 4 by 3, 5 by 4, 6 by 5, and 8 by 7 grids.
+
 To redraw several completed result folders with the same settings, edit:
 
 ```r

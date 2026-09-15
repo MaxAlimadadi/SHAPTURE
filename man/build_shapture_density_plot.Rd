@@ -32,3 +32,7 @@ A ggplot object.
 \description{
 Build the top-feature expression density plot
 }
+\details{
+The displayed features are arranged in a near-square grid using
+\code{ceiling(sqrt(n_features))} columns. Facet axes remain feature-specific.
+}

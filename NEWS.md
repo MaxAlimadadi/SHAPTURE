@@ -1,3 +1,13 @@
+# SHAPTURE 0.0.0.9010
+
+- Density plots now arrange their actual available features in a near-square
+  facet grid and allocate consistent space to each panel. This prevents plots
+  with few features from becoming unnecessarily wide and plots with many
+  features from becoming disproportionately tall.
+- Density sizing remains a post-analysis visualization change. Analysis
+  tables, SHAP values, component scores, final scores, and rankings are
+  unchanged.
+
 # SHAPTURE 0.0.0.9009
 
 - Renamed the multi-folder plotting recipe to

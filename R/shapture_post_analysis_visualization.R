@@ -132,8 +132,10 @@ find_shapture_result_folders <- function(analysis_root) {
 #' Accepted figure types are `"roc"`, `"feature_importance"`, `"waterfall"`,
 #' `"force"`, `"beeswarm"`, `"density"`, `"score_decomposition"`,
 #' `"component_heatmap"`, `"evidence_heatmap"`, `"shap_vs_expression"`, and
-#' `"value_shap"`. ROC and scatter layouts remain fixed. Density height and
-#' force-plot width use larger internal growth factors suited to their layouts.
+#' `"value_shap"`. ROC and scatter layouts remain fixed. Density plots use a
+#' near-square facet grid with approximately two inches allocated to each
+#' panel; their width includes additional room for the legend. Force-plot width
+#' uses a larger internal growth factor suited to its layout.
 #'
 #' @export
 calculate_shapture_figure_size <- function(
@@ -163,6 +165,18 @@ calculate_shapture_figure_size <- function(
     }
   }
 
+  if (identical(figure_type, "density")) {
+    density_feature_count <- max(1L, as.integer(n_features))
+    density_ncol <- max(1L, ceiling(sqrt(density_feature_count)))
+    density_nrow <- max(1L, ceiling(density_feature_count / density_ncol))
+
+    return(list(
+      width = round(1.5 + 2 * density_ncol, 3),
+      height = round(1 + 2 * density_nrow, 3),
+      units = "in"
+    ))
+  }
+
   spec <- switch(
     figure_type,
     roc = list(7.5, 4.0, 7.5, 7.5, 4.0, 4.0, 0, 0, "in"),
@@ -170,7 +184,6 @@ calculate_shapture_figure_size <- function(
     waterfall = list(7.0, 4.0, 7.0, 9.0, 5.0, 30.0, 0.8, 0.14 / 0.13, "in"),
     force = list(8.0, 4.0, 8.0, 15.0, 4.0, 4.0, 3.5, 0, "in"),
     beeswarm = list(15.0, 7.0, 15.0, 20.0, 9.0, 60.0, 0.02 / (0.01 * 2.54), 0.36 / (0.13 * 2.54), "cm"),
-    density = list(13.0, 5.0, 13.0, 18.0, 7.0, 50.0, 2, 2, "in"),
     score_decomposition = list(5.5, 3.5, 5.5, 8.0, 4.5, 30.0, 1, 1, "in"),
     component_heatmap = list(5.2, 3.5, 5.2, 8.0, 4.5, 30.0, 1, 1, "in"),
     evidence_heatmap = list(4.0, 3.5, 4.0, 6.0, 4.5, 30.0, 0.8, 1, "in"),
@@ -512,6 +525,10 @@ build_shapture_beeswarm_plot <- function(
 #' @param group_color_map Named group colors.
 #'
 #' @return A ggplot object.
+#'
+#' @details
+#' The displayed features are arranged in a near-square grid using
+#' `ceiling(sqrt(n_features))` columns. Facet axes remain feature-specific.
 #' @export
 build_shapture_density_plot <- function(
     density_source,
@@ -531,6 +548,7 @@ build_shapture_density_plot <- function(
   if (length(top_features) == 0) {
     stop("No saved density features are available for the requested top features.")
   }
+  density_ncol <- max(1L, ceiling(sqrt(length(top_features))))
   
   data_density <- reshape2::melt(
     data = data_density,
@@ -548,7 +566,7 @@ build_shapture_density_plot <- function(
     ggplot2::theme_classic() +
     ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = 1))) +
     ggplot2::xlab(NULL) +
-    ggplot2::facet_wrap(~Feat, ncol = 6, scales = "free") +
+    ggplot2::facet_wrap(~Feat, ncol = density_ncol, scales = "free") +
     ggplot2::theme(
       strip.text.x = ggplot2::element_text(size = 10, colour = "black", angle = 0, face = "bold"),
       strip.background.x = ggplot2::element_blank()

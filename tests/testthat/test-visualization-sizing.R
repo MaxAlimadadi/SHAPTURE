@@ -9,7 +9,7 @@ test_that("automatic visualization sizes follow the documented defaults", {
   )
   expect_equal(
     calculate_shapture_figure_size("density", 50),
-    list(width = 14, height = 18, units = "in")
+    list(width = 17.5, height = 15, units = "in")
   )
   expect_equal(
     calculate_shapture_figure_size("score_decomposition", 50),
@@ -31,6 +31,50 @@ test_that("automatic visualization sizes follow the documented defaults", {
     calculate_shapture_figure_size("force", 50),
     list(width = 9.75, height = 4, units = "in")
   )
+})
+
+test_that("density layouts stay balanced across feature counts", {
+  expected_sizes <- list(
+    `10` = list(width = 9.5, height = 7, units = "in"),
+    `20` = list(width = 11.5, height = 9, units = "in"),
+    `30` = list(width = 13.5, height = 11, units = "in"),
+    `50` = list(width = 17.5, height = 15, units = "in")
+  )
+
+  for (feature_count in names(expected_sizes)) {
+    expect_equal(
+      calculate_shapture_figure_size("density", as.integer(feature_count)),
+      expected_sizes[[feature_count]]
+    )
+  }
+})
+
+test_that("density facets use the actual available feature count", {
+  set.seed(123)
+  feature_names <- paste0("feature_", seq_len(10))
+  density_source <- data.frame(
+    condition = rep(c(0, 1), each = 20),
+    matrix(
+      stats::rnorm(40 * length(feature_names)),
+      nrow = 40,
+      dimnames = list(NULL, feature_names)
+    ),
+    check.names = FALSE
+  )
+  combined_results <- data.frame(feature = feature_names)
+
+  density_plot <- build_shapture_density_plot(
+    density_source = density_source,
+    combined_results = combined_results,
+    top_feature_show = 50,
+    task_what_0 = "condition_0",
+    task_what_1 = "condition_1",
+    group_color_map = c(condition_0 = "darkblue", condition_1 = "darkred")
+  )
+
+  expect_equal(density_plot$facet$params$ncol, 4)
+  expect_true(density_plot$facet$params$free$x)
+  expect_true(density_plot$facet$params$free$y)
 })
 
 test_that("fixed layouts do not grow with the feature count", {
