@@ -141,3 +141,91 @@ test_that("global heatmaps use average linkage and preserve matrices", {
   expect_equal(landscape$score_matrix, result$score_matrix)
   expect_equal(similarity$similarity_matrix, result$directional_jaccard)
 })
+
+test_that("global figure sizes use actual matrix dimensions", {
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "cross_level_landscape",
+      n_features = 50,
+      n_split_levels = 10
+    ),
+    list(width = 11.5, height = 12, units = "in")
+  )
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "directional_jaccard",
+      n_split_levels = 10
+    ),
+    list(width = 10.5, height = 9.5, units = "in")
+  )
+})
+
+test_that("global figure sizes retain safeguards and exact overrides", {
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "cross_level_landscape",
+      n_features = 5,
+      n_split_levels = 2
+    ),
+    list(width = 10, height = 7.5, units = "in")
+  )
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "cross_level_landscape",
+      n_features = 1000,
+      n_split_levels = 100
+    ),
+    list(width = 32, height = 60, units = "in")
+  )
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "directional_jaccard",
+      n_split_levels = 100,
+      width = 14
+    ),
+    list(width = 14, height = 32, units = "in")
+  )
+  expect_equal(
+    calculate_shapture_global_figure_size(
+      "cross_level_landscape",
+      n_features = 50,
+      n_split_levels = 10,
+      height = 18
+    ),
+    list(width = 11.5, height = 18, units = "in")
+  )
+})
+
+test_that("global figure-size inputs are validated", {
+  expect_error(
+    calculate_shapture_global_figure_size(
+      "unknown",
+      n_features = 10,
+      n_split_levels = 3
+    ),
+    "figure_type"
+  )
+  expect_error(
+    calculate_shapture_global_figure_size(
+      "cross_level_landscape",
+      n_features = 0,
+      n_split_levels = 3
+    ),
+    "n_features"
+  )
+  expect_error(
+    calculate_shapture_global_figure_size(
+      "directional_jaccard",
+      n_split_levels = 2.5
+    ),
+    "n_split_levels"
+  )
+  expect_error(
+    calculate_shapture_global_figure_size(
+      "directional_jaccard",
+      n_split_levels = 3,
+      width = 0
+    ),
+    "width"
+  )
+})

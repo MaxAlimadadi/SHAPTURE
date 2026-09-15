@@ -1,3 +1,14 @@
+# SHAPTURE 0.0.0.9011
+
+- Global visualization PDFs now size themselves from the matrices actually
+  displayed: the cross-level landscape uses both selected-feature and
+  split-level counts, while the direction-aware Jaccard matrix uses its
+  split-level count on both axes.
+- The editable global visualization recipe keeps visible `width` and `height`
+  controls. Leave either value as `NULL` for automatic sizing or replace it
+  with an exact size in inches. This changes graphics-device dimensions only;
+  feature selection, scores, Jaccard values, and clustering are unchanged.
+
 # SHAPTURE 0.0.0.9010
 
 - Density plots now arrange their actual available features in a near-square

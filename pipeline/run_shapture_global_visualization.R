@@ -50,8 +50,10 @@ message(
 #####
 # Cross-level feature landscape
 #####
-cross_level_landscape_width <- 11
-cross_level_landscape_height <- 8.5
+# NULL sizes the figure automatically from the actual feature and split-level
+# counts. Replace either NULL with an exact size in inches to override it.
+cross_level_landscape_width <- NULL
+cross_level_landscape_height <- NULL
 
 # Set FALSE when hundreds or thousands of feature names would be unreadable.
 cross_level_landscape_show_feature_names <- TRUE
@@ -80,6 +82,14 @@ cross_level_feature_landscape <- build_shapture_cross_level_landscape(
   use_raster = cross_level_landscape_use_raster
 )
 
+cross_level_landscape_size <- calculate_shapture_global_figure_size(
+  figure_type = "cross_level_landscape",
+  n_features = nrow(global_results$score_matrix),
+  n_split_levels = ncol(global_results$score_matrix),
+  width = cross_level_landscape_width,
+  height = cross_level_landscape_height
+)
+
 cross_level_landscape_path <- file.path(
   output_dir,
   paste0(
@@ -91,8 +101,8 @@ cross_level_landscape_path <- file.path(
 
 pdf(
   cross_level_landscape_path,
-  width = cross_level_landscape_width,
-  height = cross_level_landscape_height
+  width = cross_level_landscape_size$width,
+  height = cross_level_landscape_size$height
 )
 ComplexHeatmap::draw(
   cross_level_feature_landscape$heatmap,
@@ -124,8 +134,10 @@ dev.off()
 #####
 # Direction-aware Jaccard similarity
 #####
-directional_jaccard_width <- 10
-directional_jaccard_height <- 8.5
+# NULL sizes the figure automatically from the actual split-level count.
+# Replace either NULL with an exact size in inches to override it.
+directional_jaccard_width <- NULL
+directional_jaccard_height <- NULL
 
 # Value labels are useful for a modest number of split levels. Set FALSE when
 # many levels make the matrix cells too small.
@@ -148,6 +160,13 @@ directional_jaccard_similarity <- build_shapture_directional_jaccard_heatmap(
   use_raster = directional_jaccard_use_raster
 )
 
+directional_jaccard_size <- calculate_shapture_global_figure_size(
+  figure_type = "directional_jaccard",
+  n_split_levels = nrow(global_results$directional_jaccard),
+  width = directional_jaccard_width,
+  height = directional_jaccard_height
+)
+
 directional_jaccard_path <- file.path(
   output_dir,
   paste0(
@@ -159,8 +178,8 @@ directional_jaccard_path <- file.path(
 
 pdf(
   directional_jaccard_path,
-  width = directional_jaccard_width,
-  height = directional_jaccard_height
+  width = directional_jaccard_size$width,
+  height = directional_jaccard_size$height
 )
 ComplexHeatmap::draw(
   directional_jaccard_similarity$heatmap,
@@ -181,3 +200,11 @@ dev.off()
 
 message("Saved: ", cross_level_landscape_path)
 message("Saved: ", directional_jaccard_path)
+message(
+  "Cross-level landscape size: ", cross_level_landscape_size$width, " x ",
+  cross_level_landscape_size$height, " inches."
+)
+message(
+  "Direction-aware Jaccard size: ", directional_jaccard_size$width, " x ",
+  directional_jaccard_size$height, " inches."
+)

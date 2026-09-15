@@ -374,9 +374,14 @@ match. Condition-vs-condition folders must use the same condition labels. For
 one-vs-others results, directions are normalized to target versus others before
 folders are compared.
 
-Both figures use average-linkage hierarchical clustering by default. Width,
-height, palette, tile borders, feature-name display, direction symbols, and
-similarity value labels are directly editable in the visualization script.
+Both figures use average-linkage hierarchical clustering by default. Their PDF
+dimensions are calculated after loading the results, using the actual plotted
+feature and split-level counts. The cross-level landscape grows with both
+matrix dimensions, while the square Jaccard view grows with the split-level
+count. The visible `width` and `height` controls default to `NULL`; replace
+either one with an exact size in inches to override only that dimension.
+Palette, tile borders, feature-name display, direction symbols, and similarity
+value labels are also directly editable in the visualization script.
 The default palette is:
 
 ```r

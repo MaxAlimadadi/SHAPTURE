@@ -157,6 +157,97 @@ validate_global_palette <- function(continuous_colors) {
 }
 
 
+#' Calculate an automatic SHAPTURE global-figure size
+#'
+#' Uses the dimensions of the matrix that will actually be plotted. The
+#' cross-level landscape grows horizontally with split levels and vertically
+#' with selected features. The direction-aware Jaccard heatmap grows in both
+#' directions with split levels because both matrix axes contain those levels.
+#'
+#' @param figure_type Either `"cross_level_landscape"` or
+#'   `"directional_jaccard"`.
+#' @param n_features Number of feature rows in the cross-level landscape.
+#'   This is required for `"cross_level_landscape"` and ignored for
+#'   `"directional_jaccard"`.
+#' @param n_split_levels Number of split levels displayed in the figure.
+#' @param width Optional exact width in inches. `NULL` uses automatic sizing.
+#' @param height Optional exact height in inches. `NULL` uses automatic sizing.
+#'
+#' @return A list containing `width`, `height`, and `units` for the graphics
+#'   device.
+#'
+#' @details
+#' Automatic landscape sizing uses `8.5 + 0.30 * n_split_levels` inches for
+#' width and `5.5 + 0.13 * n_features` inches for height, within safety bounds.
+#' Automatic Jaccard sizing uses `6.5 + 0.40 * n_split_levels` inches for width
+#' and `5.5 + 0.40 * n_split_levels` inches for height. A supplied `width` or
+#' `height` overrides only that dimension, so the other dimension can remain
+#' automatic.
+#'
+#' @export
+calculate_shapture_global_figure_size <- function(
+    figure_type,
+    n_features = NULL,
+    n_split_levels,
+    width = NULL,
+    height = NULL
+) {
+  valid_types <- c("cross_level_landscape", "directional_jaccard")
+  if (!is.character(figure_type) || length(figure_type) != 1L ||
+      is.na(figure_type) || !figure_type %in% valid_types) {
+    stop("figure_type must be one of: ", paste(valid_types, collapse = ", "), ".")
+  }
+
+  validate_count <- function(value, value_name, allow_null = FALSE) {
+    if (allow_null && is.null(value)) {
+      return(invisible(NULL))
+    }
+    if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+        !is.finite(value) || value < 1 || value != floor(value)) {
+      stop(value_name, " must be one positive integer.")
+    }
+    invisible(NULL)
+  }
+  validate_count(n_split_levels, "n_split_levels")
+  if (identical(figure_type, "cross_level_landscape")) {
+    validate_count(n_features, "n_features")
+  } else {
+    validate_count(n_features, "n_features", allow_null = TRUE)
+  }
+
+  validate_override <- function(value, value_name) {
+    if (is.null(value)) {
+      return(invisible(NULL))
+    }
+    if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+        !is.finite(value) || value <= 0) {
+      stop(value_name, " must be NULL or one positive finite number.")
+    }
+    invisible(NULL)
+  }
+  validate_override(width, "width")
+  validate_override(height, "height")
+
+  if (identical(figure_type, "cross_level_landscape")) {
+    automatic_width <- 8.5 + 0.30 * n_split_levels
+    automatic_height <- 5.5 + 0.13 * n_features
+    automatic_width <- max(10, min(32, automatic_width))
+    automatic_height <- max(7.5, min(60, automatic_height))
+  } else {
+    automatic_width <- 6.5 + 0.40 * n_split_levels
+    automatic_height <- 5.5 + 0.40 * n_split_levels
+    automatic_width <- max(8, min(32, automatic_width))
+    automatic_height <- max(7, min(32, automatic_height))
+  }
+
+  list(
+    width = round(if (is.null(width)) automatic_width else width, 3),
+    height = round(if (is.null(height)) automatic_height else height, 3),
+    units = "in"
+  )
+}
+
+
 #' Load multiple completed SHAPTURE comparisons for global visualization
 #'
 #' Each result folder contributes its top `top_feature_show` ranked features.

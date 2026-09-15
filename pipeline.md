@@ -137,7 +137,7 @@ input data and row order, package versions, and analysis parameters.
 - The cross-level landscape displays final scores, model-expression pattern symbols, and average-linkage hierarchical clustering of both features and split levels.
 - The direction-aware Jaccard similarity is the number of shared selected features with matching normalized direction divided by the union of selected feature names. Opposite directions do not count as a match.
 - Condition-vs-condition folders must use the same condition labels. One-vs-others patterns are normalized to target versus others before comparison.
-- Width, height, colors, borders, labels, and rasterization behavior remain visible and editable in the global visualization script.
+- Global PDF dimensions are calculated from the actual matrices after loading: the landscape uses its selected-feature and split-level counts, and the Jaccard matrix uses its split-level count on both axes. Visible `width` and `height` values default to `NULL`; enter an exact size in inches to override either dimension. Colors, borders, labels, and rasterization behavior remain editable in the script.
 
 ### Patient balancing choice
 - `patient_balance_method`:
