@@ -217,17 +217,35 @@ for (what_condition in sort(as.numeric(names(condition_aggregate_data)))) {
 #####
 # Beeswarm plot
 #####
+beeswarm_source_S <- as.matrix(inputs$shap$beeswarm_source_S)
+beeswarm_source_X <- as.data.frame(
+  inputs$shap$beeswarm_source_X,
+  check.names = FALSE
+)
+requested_beeswarm_features <- as.character(utils::head(
+  combined_results$feature,
+  top_feature_show_actual
+))
+beeswarm_features_actual <- requested_beeswarm_features[
+  requested_beeswarm_features %in% colnames(beeswarm_source_S) &
+    requested_beeswarm_features %in% colnames(beeswarm_source_X)
+]
+if (length(beeswarm_features_actual) < 1L) {
+  stop("No requested top features are available in both saved beeswarm inputs.")
+}
+beeswarm_feature_count <- length(beeswarm_features_actual)
+
 beeswarm_plot_size <- calculate_shapture_figure_size(
   figure_type = "beeswarm",
-  n_features = top_feature_show_actual,
+  n_features = beeswarm_feature_count,
   width_per_feature = width_per_feature,
   height_per_feature = height_per_feature
 )
 
 beeswarm_plot <- build_shapture_beeswarm_plot(
   combined_results = combined_results,
-  beeswarm_source_S = as.matrix(inputs$shap$beeswarm_source_S),
-  beeswarm_source_X = as.data.frame(inputs$shap$beeswarm_source_X, check.names = FALSE),
+  beeswarm_source_S = beeswarm_source_S,
+  beeswarm_source_X = beeswarm_source_X,
   top_feature_show = top_feature_show_actual,
   task_what_0 = viz$task_what_0,
   task_what_1 = viz$task_what_1,
@@ -237,7 +255,7 @@ beeswarm_plot <- build_shapture_beeswarm_plot(
 plot_objects$beeswarm <- beeswarm_plot
 
 png(
-  filename = file.path(viz$integrated_dir, paste0("beeswarm_plot_top.", top_feature_show_actual, ".features.png")),
+  filename = file.path(viz$integrated_dir, paste0("beeswarm_plot_top.", beeswarm_feature_count, ".features.png")),
   width = beeswarm_plot_size$width,
   height = beeswarm_plot_size$height,
   units = beeswarm_plot_size$units,
@@ -245,6 +263,115 @@ png(
 )
 print(beeswarm_plot)
 dev.off()
+
+#####
+# Equal-count binned beeswarm and SHAP-value dependency plots
+#####
+equal_count_groups <- build_shapture_equal_count_groups(
+  beeswarm_source_S = beeswarm_source_S,
+  beeswarm_source_X = beeswarm_source_X,
+  features = beeswarm_features_actual,
+  target_groups = 500L,
+  min_units_per_group = 10L,
+  raw_unit_threshold = 500L
+)
+equal_count_features <- attr(equal_count_groups, "displayed_features")
+equal_count_feature_count <- length(equal_count_features)
+
+write.csv(
+  equal_count_groups,
+  file.path(viz$output_docs_dir, "equal_count_shap_group_summary.csv"),
+  row.names = FALSE
+)
+
+binned_beeswarm_plot <- build_shapture_binned_beeswarm_plot(
+  combined_results = combined_results,
+  grouped_data = equal_count_groups,
+  task_what_0 = viz$task_what_0,
+  task_what_1 = viz$task_what_1,
+  group_colors = viz$group_colors,
+  continuous_colors = viz$continuous_colors
+)
+plot_objects$binned_beeswarm <- binned_beeswarm_plot
+
+binned_beeswarm_plot_size <- calculate_shapture_figure_size(
+  figure_type = "beeswarm",
+  n_features = equal_count_feature_count,
+  width_per_feature = width_per_feature,
+  height_per_feature = height_per_feature
+)
+png(
+  filename = file.path(
+    viz$integrated_dir,
+    paste0("binned_beeswarm_plot_top.", equal_count_feature_count, ".features.png")
+  ),
+  width = binned_beeswarm_plot_size$width,
+  height = binned_beeswarm_plot_size$height,
+  units = binned_beeswarm_plot_size$units,
+  res = 300
+)
+print(binned_beeswarm_plot)
+dev.off()
+
+dependency_dir <- file.path(
+  viz$integrated_dir,
+  "shap_value_dependency_plots"
+)
+dir.create(dependency_dir, recursive = TRUE, showWarnings = FALSE)
+old_dependency_files <- list.files(
+  dependency_dir,
+  pattern = "^shap_value_dependency_.*[.]pdf$",
+  full.names = TRUE
+)
+if (length(old_dependency_files) > 0L) {
+  unlink(old_dependency_files)
+}
+dependency_plot_size <- calculate_shapture_figure_size(
+  figure_type = "dependency",
+  n_features = 1L,
+  width_per_feature = width_per_feature,
+  height_per_feature = height_per_feature
+)
+safe_dependency_names <- gsub("[^A-Za-z0-9._-]+", "_", equal_count_features)
+empty_dependency_names <- !nzchar(safe_dependency_names)
+safe_dependency_names[empty_dependency_names] <- paste0(
+  "feature_",
+  which(empty_dependency_names)
+)
+safe_dependency_names <- make.unique(safe_dependency_names, sep = "_")
+plot_objects$shap_value_dependency <- list()
+for (feature_index in seq_along(equal_count_features)) {
+  dependency_feature <- equal_count_features[feature_index]
+  dependency_plot <- build_shapture_dependency_plot(
+    grouped_data = equal_count_groups,
+    feature = dependency_feature,
+    beeswarm_source_S = beeswarm_source_S,
+    beeswarm_source_X = beeswarm_source_X,
+    task_what_0 = viz$task_what_0,
+    task_what_1 = viz$task_what_1,
+    continuous_colors = viz$continuous_colors
+  )
+  plot_objects$shap_value_dependency[[dependency_feature]] <- dependency_plot
+  dependency_path <- file.path(
+    dependency_dir,
+    paste0("shap_value_dependency_", safe_dependency_names[feature_index], ".pdf")
+  )
+  if (isTRUE(capabilities("cairo"))) {
+    grDevices::cairo_pdf(
+      filename = dependency_path,
+      width = dependency_plot_size$width,
+      height = dependency_plot_size$height
+    )
+  } else {
+    grDevices::pdf(
+      file = dependency_path,
+      width = dependency_plot_size$width,
+      height = dependency_plot_size$height
+    )
+  }
+  print(dependency_plot)
+  dev.off()
+}
 
 #####
 # Density plot

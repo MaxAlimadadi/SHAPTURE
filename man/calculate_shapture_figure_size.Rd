@@ -34,8 +34,9 @@ uses \code{units = "cm"}.
 \details{
 Accepted figure types are \code{"roc"}, \code{"feature_importance"}, \code{"waterfall"},
 \code{"force"}, \code{"beeswarm"}, \code{"density"}, \code{"score_decomposition"},
-\code{"component_heatmap"}, \code{"evidence_heatmap"}, \code{"shap_vs_expression"}, and
-\code{"value_shap"}. ROC and scatter layouts remain fixed. Density plots use a
+\code{"component_heatmap"}, \code{"evidence_heatmap"}, \code{"shap_vs_expression"},
+\code{"value_shap"}, and \code{"dependency"}. ROC, dependency, and scatter layouts
+remain fixed. Density plots use a
 near-square facet grid with approximately two inches allocated to each
 panel; their width includes additional room for the legend. Force-plot width
 uses a larger internal growth factor suited to its layout.

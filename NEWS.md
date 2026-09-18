@@ -1,3 +1,16 @@
+# SHAPTURE 0.0.0.9012
+
+- Added a display-only equal-count binned beeswarm and one SHAP-value
+  dependency PDF for every feature actually shown in the beeswarm. The
+  original unit-level beeswarm is unchanged.
+- The two new plots reuse deterministic feature-specific groups formed jointly
+  from SHAP and model-seen feature values. They target 500 groups, require at
+  least 10 units per group, and show original units below 500 valid units.
+- Dependency smooths continue to use original unbinned values. Binning does
+  not change correlations, component scores, final scores, or rankings.
+- Beeswarm filenames and automatic figure sizing now use the number of saved
+  features actually displayed when it is smaller than the requested count.
+
 # SHAPTURE 0.0.0.9011
 
 - Global visualization PDFs now size themselves from the matrices actually

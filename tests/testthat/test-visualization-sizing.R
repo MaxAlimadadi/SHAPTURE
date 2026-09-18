@@ -31,6 +31,10 @@ test_that("automatic visualization sizes follow the documented defaults", {
     calculate_shapture_figure_size("force", 50),
     list(width = 9.75, height = 4, units = "in")
   )
+  expect_equal(
+    calculate_shapture_figure_size("dependency", 50),
+    list(width = 8.6, height = 6.2, units = "in")
+  )
 })
 
 test_that("density layouts stay balanced across feature counts", {
@@ -89,6 +93,10 @@ test_that("fixed layouts do not grow with the feature count", {
   expect_equal(
     calculate_shapture_figure_size("value_shap", 500),
     list(width = 8, height = 8, units = "in")
+  )
+  expect_equal(
+    calculate_shapture_figure_size("dependency", 500),
+    list(width = 8.6, height = 6.2, units = "in")
   )
 })
 

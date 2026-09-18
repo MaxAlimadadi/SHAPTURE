@@ -298,10 +298,14 @@ Each analysis task creates a result folder with:
 - `docs/patient_feature_coverage_summary.csv`: held-out patient coverage by gene
 - `docs/cross_patient_bootstrap_runtime.csv`: applied serial or parallel
   bootstrap backend, CPU/RAM safeguards, timing, and fallback status
+- `docs/equal_count_shap_group_summary.csv`: feature-specific equal-count
+  groups used by the binned beeswarm and dependency plots
 - `Integrated_adaptive_scoring_results/run_summary.csv`: compact task settings,
   patient split outcome, coverage, feature counts, model performance, and
   Cross-patient bootstrap runtime summary
 - `Integrated_adaptive_scoring_results/`: summary figures
+- `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`: one
+  SHAP-value dependency PDF for every feature shown in the beeswarm
 - `SHAP_only/`: SHAP-only condition summaries
 
 The pipeline also saves `docs/visualization_inputs.rds`, which lets you redraw
@@ -349,6 +353,18 @@ Feature names in the beeswarm and feature-importance plots use the same
 `Model_expression_pattern` colors: `group_colors[2]` for condition 1/target
 and `group_colors[1]` for condition 0/others. Both legends list condition 1
 first. These colors describe the saved class assignment, not the score magnitude.
+
+The original beeswarm remains an unbinned unit-level plot. A second binned
+beeswarm and the feature-specific dependency PDFs use the same deterministic
+groups for each feature. The script aims for 500 groups, keeps at least 10
+valid cells or metacells in each group, and displays original units when fewer
+than 500 are available. Groups are formed jointly from SHAP and model-seen
+feature values after mapping both dimensions to 0-1 for grouping only. Each
+hexagon is placed at its group's mean SHAP and mean feature value. This binning
+is only for display: scores, correlations, rankings, and dependency smooths
+continue to use the original unbinned values. Output names use the number of
+features actually displayed rather than the requested number when fewer saved
+features are available.
 
 ## Global visualization across split levels
 

@@ -129,6 +129,7 @@ input data and row order, package versions, and analysis parameters.
 - `pipeline/run_shapture_visualization.R` is an editable single-folder figure recipe, not a black-box rendering function. `top_feature_show`, `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and `height_per_feature` are defined once near the top.
 - `pipeline/run_shapture_visualization_loop_multiple_folder.R` applies the same editable settings to every immediate child folder containing `docs/combined_results.csv` and `docs/visualization_inputs.rds`. Discovery is independent of comparison mode and folder name.
 - Feature-dependent dimensions are calculated from the actual number displayed. Plot-specific base sizes and bounds remain in `calculate_shapture_figure_size()`, while every visible `pdf()` or `png()` call can still be changed to a fixed width or height directly. Density plots use the actual saved density-feature count to form a near-square grid with consistent panel space and additional horizontal room for the legend.
+- The original beeswarm remains unchanged. The visualization recipes also create an equal-count binned beeswarm and one dependency PDF per feature actually displayed in the beeswarm. Both new plots reuse the same feature-specific groups.
 - `save_plot_objects`: `FALSE` by default inside the visualization script. Set it to `TRUE` there only when you want the reusable ggplot object list saved to `docs/plots.rds`; leaving it off makes large runs faster and uses less disk.
 
 ### Global visualization across split levels
@@ -279,7 +280,7 @@ During analysis, each completed result folder saves `docs/visualization_inputs.r
 
 When `save_plot_objects = TRUE` in the visualization step, the result folder also saves `docs/plots.rds`, which contains the generated plot objects. This makes it possible to reopen a plot later, print it at a different size, or modify themes, fonts, labels, and colors without rerunning the analysis. The default is `FALSE` because saving large plot-object lists can slow down large runs.
 
-The single-folder and multiple-folder visualization recipes calculate dimensions automatically. Edit `width_per_feature` and `height_per_feature` near the top to change how most feature-dependent figures grow. Density plots instead calculate `ceiling(sqrt(n_features))` columns from the actual saved features and derive the required rows and device dimensions automatically, keeping facet dimensions approximately consistent. To use an exact size for one figure, replace `calculated_size$width` or `calculated_size$height` with a number in that figure's visible `pdf()`/`png()` call. Dot-label sizes remain visible beside the corresponding plot call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`.
+The single-folder and multiple-folder visualization recipes calculate dimensions automatically. Edit `width_per_feature` and `height_per_feature` near the top to change how most feature-dependent figures grow. Density plots instead calculate `ceiling(sqrt(n_features))` columns from the actual saved features and derive the required rows and device dimensions automatically, keeping facet dimensions approximately consistent. To use an exact size for one figure, replace `calculated_size$width` or `calculated_size$height` with a number in that figure's visible `pdf()`/`png()` call. Dot-label sizes remain visible beside the corresponding plot call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `beeswarm_plot_top.N.features.png`, `binned_beeswarm_plot_top.N.features.png`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`. Here, `N` is the number actually shown. Dependency plots are written separately to `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`.
 
 ---
 
@@ -539,7 +540,8 @@ After the analysis finishes, set `result_dir` in `pipeline/run_shapture_visualiz
 
 Expected outputs include:
 - SHAP feature-importance plots
-- beeswarm-like SHAP plots
+- the original unit-level beeswarm and an equal-count binned beeswarm
+- one SHAP-value dependency PDF per feature shown in the beeswarm
 - density plots
 - ROC plots
 - score decomposition plots for top features and all retained features
@@ -549,6 +551,18 @@ Expected outputs include:
 - SHAP effect versus expression log2FC plots
 
 Beeswarm point colors use the preprocessed/scaled feature values that were passed to the model. This keeps `full` and `safe` memory modes consistent and makes the beeswarm reflect what the model saw.
+
+The binned beeswarm and dependency plot are display summaries. For each
+feature, finite unit-level SHAP and model-seen feature values are mapped to
+comparable 0-1 ranges for grouping only. A deterministic recursive partition
+then splits whichever local dimension has the larger robust 5th-to-95th
+percentile spread. Group capacities are balanced so they differ by no more
+than one unit. The target is 500 groups with at least 10 units per group; when
+fewer than 500 valid units exist, the original units are displayed instead.
+Both plots reuse these exact groups and show group means, while all analysis
+statistics remain unbinned. Each dependency smooth fits
+`SHAP ~ s(feature value)` to the original unbinned units, not to the hexagons.
+The group audit is saved as `docs/equal_count_shap_group_summary.csv`.
 
 The support matrix summarizes final score, model reproducibility, and Cross-patient support for the top-ranked retained features. If Cross-patient support is unavailable, its column is omitted rather than shown as zero or a neutral midpoint.
 
