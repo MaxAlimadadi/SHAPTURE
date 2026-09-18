@@ -1,3 +1,10 @@
+# SHAPTURE 0.0.0.9013
+
+- Binned beeswarm and SHAP-value dependency plots now draw filled hexagons as
+  geometric polygons instead of Unicode font symbols. This fixes empty-square
+  symbols on graphics devices without the required glyph and does not change
+  equal-count groups, averages, smooths, scores, or rankings.
+
 # SHAPTURE 0.0.0.9012
 
 - Added a display-only equal-count binned beeswarm and one SHAP-value

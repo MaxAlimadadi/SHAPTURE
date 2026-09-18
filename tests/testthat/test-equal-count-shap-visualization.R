@@ -118,6 +118,17 @@ test_that("Binned beeswarm and dependency plots share clear labels", {
   expect_equal(binned_beeswarm$labels$colour, "Mean feature value")
   expect_equal(dependency$labels$colour, "Mean feature value")
   expect_equal(dependency$labels$y, "Scaled gene_A value")
+
+  expect_s3_class(binned_beeswarm$layers[[1]]$geom, "GeomShaptureHexPoint")
+  expect_s3_class(dependency$layers[[1]]$geom, "GeomShaptureHexPoint")
+  beeswarm_hexagons <- ggplot2::layer_grob(binned_beeswarm, 1L)[[1]]
+  dependency_hexagons <- ggplot2::layer_grob(dependency, 1L)[[1]]
+  expect_s3_class(beeswarm_hexagons, "polygon")
+  expect_s3_class(dependency_hexagons, "polygon")
+  expect_true(all(!is.na(beeswarm_hexagons$gp$fill)))
+  expect_true(all(!is.na(dependency_hexagons$gp$fill)))
+  expect_equal(length(beeswarm_hexagons$id), nrow(groups) * 6L)
+  expect_equal(length(dependency_hexagons$id), sum(groups$feature == "gene_A") * 6L)
 })
 
 

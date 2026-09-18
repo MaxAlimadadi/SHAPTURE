@@ -1,6 +1,6 @@
 Package: SHAPTURE
 Title: Sample-Aware SHAP-Based Feature Discovery for Single-Cell and Metacell Data
-Version: 0.0.0.9012
+Version: 0.0.0.9013
 Authors@R: 
     person(given = "Max",
            family = "Alimadadi",

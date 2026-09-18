@@ -732,6 +732,80 @@ build_shapture_equal_count_groups <- function(
 }
 
 
+# Draw filled hexagons as grid polygons rather than font glyphs. This keeps the
+# summarized-unit symbols identical across PNG/PDF devices and operating systems.
+GeomShaptureHexPoint <- ggplot2::ggproto(
+  "GeomShaptureHexPoint",
+  ggplot2::Geom,
+  required_aes = c("x", "y"),
+  non_missing_aes = c("size", "colour"),
+  default_aes = ggplot2::aes(
+    colour = "black",
+    size = 1.5,
+    alpha = NA
+  ),
+  draw_key = function(data, params, size) {
+    angles <- seq(0, 2 * pi, length.out = 7L)[-7L] + pi / 6
+    hex_color <- scales::alpha(data$colour %||% "black", data$alpha %||% NA_real_)
+    grid::polygonGrob(
+      x = grid::unit(0.5 + 0.38 * cos(angles), "npc"),
+      y = grid::unit(0.5 + 0.38 * sin(angles), "npc"),
+      gp = grid::gpar(fill = hex_color, col = hex_color, lwd = 0.35)
+    )
+  },
+  draw_panel = function(data, panel_params, coord, na.rm = FALSE) {
+    coords <- coord$transform(data, panel_params)
+    if (nrow(coords) < 1L) {
+      return(grid::nullGrob())
+    }
+
+    angles <- seq(0, 2 * pi, length.out = 7L)[-7L] + pi / 6
+    n_points <- nrow(coords)
+    radius_mm <- rep(coords$size / 2, each = 6L)
+    x_offsets <- radius_mm * rep(cos(angles), times = n_points)
+    y_offsets <- radius_mm * rep(sin(angles), times = n_points)
+    polygon_ids <- rep(seq_len(n_points), each = 6L)
+    hex_colors <- scales::alpha(coords$colour, coords$alpha)
+
+    grid::polygonGrob(
+      x = grid::unit(rep(coords$x, each = 6L), "native") +
+        grid::unit(x_offsets, "mm"),
+      y = grid::unit(rep(coords$y, each = 6L), "native") +
+        grid::unit(y_offsets, "mm"),
+      id = polygon_ids,
+      gp = grid::gpar(
+        fill = hex_colors,
+        col = hex_colors,
+        lwd = 0.35
+      )
+    )
+  }
+)
+
+
+geom_shapture_hex_point <- function(
+    mapping = NULL,
+    data = NULL,
+    stat = "identity",
+    position = "identity",
+    ...,
+    na.rm = FALSE,
+    show.legend = NA,
+    inherit.aes = TRUE
+) {
+  ggplot2::layer(
+    data = data,
+    mapping = mapping,
+    stat = stat,
+    geom = GeomShaptureHexPoint,
+    position = position,
+    show.legend = show.legend,
+    inherit.aes = inherit.aes,
+    params = list(na.rm = na.rm, ...)
+  )
+}
+
+
 #' Build an equal-count binned SHAP beeswarm
 #'
 #' @param combined_results Ranked feature table.
@@ -806,14 +880,16 @@ build_shapture_binned_beeswarm_plot <- function(
     grouped_data,
     ggplot2::aes(x = mean_shap, y = feature)
   ) +
-    ggbeeswarm::geom_quasirandom(
+    geom_shapture_hex_point(
       ggplot2::aes(color = mean_feature_value),
-      method = "tukey",
-      width = 0.3,
-      shape = "\u2B22",
+      position = ggbeeswarm::position_quasirandom(
+        method = "tukey",
+        width = 0.3,
+        orientation = "y",
+        na.rm = TRUE
+      ),
       size = 2.45,
       alpha = 0.98,
-      orientation = "y",
       na.rm = TRUE
     ) +
     ggplot2::scale_color_gradientn(colors = continuous_colors) +
@@ -960,9 +1036,8 @@ build_shapture_dependency_plot <- function(
     feature_groups,
     ggplot2::aes(x = mean_shap, y = mean_feature_value)
   ) +
-    ggplot2::geom_point(
+    geom_shapture_hex_point(
       ggplot2::aes(color = mean_feature_value),
-      shape = "\u2B22",
       size = 3,
       alpha = 0.97
     ) +

@@ -360,7 +360,8 @@ groups for each feature. The script aims for 500 groups, keeps at least 10
 valid cells or metacells in each group, and displays original units when fewer
 than 500 are available. Groups are formed jointly from SHAP and model-seen
 feature values after mapping both dimensions to 0-1 for grouping only. Each
-hexagon is placed at its group's mean SHAP and mean feature value. This binning
+filled geometric hexagon is placed at its group's mean SHAP and mean feature
+value. This binning
 is only for display: scores, correlations, rankings, and dependency smooths
 continue to use the original unbinned values. Output names use the number of
 features actually displayed rather than the requested number when fewer saved
