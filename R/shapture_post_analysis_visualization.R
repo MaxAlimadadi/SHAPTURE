@@ -888,7 +888,7 @@ build_shapture_binned_beeswarm_plot <- function(
         orientation = "y",
         na.rm = TRUE
       ),
-      size = 2.45,
+      size = 0.98,
       alpha = 0.98,
       na.rm = TRUE
     ) +

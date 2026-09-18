@@ -1,3 +1,9 @@
+# SHAPTURE 0.0.0.9014
+
+- Reduced the filled-hexagon size in the equal-count binned beeswarm so its
+  Tukey layout remains readable without heavy symbol overlap. Equal-count
+  groups, dependency plots, and all analytical results are unchanged.
+
 # SHAPTURE 0.0.0.9013
 
 - Binned beeswarm and SHAP-value dependency plots now draw filled hexagons as

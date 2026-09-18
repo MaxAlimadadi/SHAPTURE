@@ -121,6 +121,7 @@ test_that("Binned beeswarm and dependency plots share clear labels", {
 
   expect_s3_class(binned_beeswarm$layers[[1]]$geom, "GeomShaptureHexPoint")
   expect_s3_class(dependency$layers[[1]]$geom, "GeomShaptureHexPoint")
+  expect_equal(binned_beeswarm$layers[[1]]$aes_params$size, 0.98)
   beeswarm_hexagons <- ggplot2::layer_grob(binned_beeswarm, 1L)[[1]]
   dependency_hexagons <- ggplot2::layer_grob(dependency, 1L)[[1]]
   expect_s3_class(beeswarm_hexagons, "polygon")
