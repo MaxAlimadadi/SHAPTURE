@@ -1011,6 +1011,18 @@ build_shapture_dependency_plot <- function(
     stop("No paired finite SHAP and feature values are available for ", feature, ".")
   }
 
+  padded_dependency_range <- function(values, padding_fraction = 0.03) {
+    value_range <- range(values, finite = TRUE)
+    value_span <- diff(value_range)
+    if (!is.finite(value_span) || value_span <= 0) {
+      value_span <- max(abs(value_range), 1)
+    }
+    padding <- value_span * padding_fraction
+    c(value_range[1] - padding, value_range[2] + padding)
+  }
+  dependency_xlim <- padded_dependency_range(feature_groups$mean_shap)
+  dependency_ylim <- padded_dependency_range(feature_groups$mean_feature_value)
+
   prediction_grid <- NULL
   n_unique_values <- length(unique(raw_data$scaled_feature_value))
   if (nrow(raw_data) >= 10L && n_unique_values >= 4L) {
@@ -1057,8 +1069,8 @@ build_shapture_dependency_plot <- function(
       colors = continuous_colors
     ) +
     ggplot2::coord_cartesian(
-      xlim = range(feature_groups$mean_shap, finite = TRUE),
-      ylim = range(feature_groups$mean_feature_value, finite = TRUE),
+      xlim = dependency_xlim,
+      ylim = dependency_ylim,
       expand = FALSE
     ) +
     ggplot2::labs(

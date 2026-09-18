@@ -1,3 +1,9 @@
+# SHAPTURE 0.0.0.9016
+
+- Dependency plots now add a 3% visual margin around the observed SHAP and
+  feature-value ranges. This prevents boundary hexagons from being clipped
+  while leaving grouped values, GAM fits, and analysis results unchanged.
+
 # SHAPTURE 0.0.0.9015
 
 - Added the editable `binned_beeswarm_hexagon_size` setting to both

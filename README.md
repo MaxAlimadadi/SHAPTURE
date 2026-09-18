@@ -369,6 +369,10 @@ use the number of
 features actually displayed rather than the requested number when fewer saved
 features are available.
 
+Dependency plots reserve their explanatory sentence above the coordinate panel
+and add a 3% display margin around both axes so boundary hexagons remain fully
+visible. This margin changes only the displayed limits.
+
 ## Global visualization across split levels
 
 When an analysis produces several split-level result folders, edit:

@@ -120,6 +120,23 @@ test_that("Binned beeswarm and dependency plots share clear labels", {
   expect_equal(dependency$labels$y, "Scaled gene_A value")
   expect_identical(dependency$theme$plot.title.position, "plot")
   expect_equal(as.numeric(dependency$theme$plot.subtitle$margin[3]), 12)
+  dependency_feature_groups <- groups[groups$feature == "gene_A", , drop = FALSE]
+  expect_lt(
+    dependency$coordinates$limits$x[1],
+    min(dependency_feature_groups$mean_shap)
+  )
+  expect_gt(
+    dependency$coordinates$limits$x[2],
+    max(dependency_feature_groups$mean_shap)
+  )
+  expect_lt(
+    dependency$coordinates$limits$y[1],
+    min(dependency_feature_groups$mean_feature_value)
+  )
+  expect_gt(
+    dependency$coordinates$limits$y[2],
+    max(dependency_feature_groups$mean_feature_value)
+  )
 
   expect_s3_class(binned_beeswarm$layers[[1]]$geom, "GeomShaptureHexPoint")
   expect_s3_class(dependency$layers[[1]]$geom, "GeomShaptureHexPoint")
