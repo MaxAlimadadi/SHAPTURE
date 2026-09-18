@@ -350,6 +350,18 @@ resolve_shapture_script_config <- function(
   if (nzchar(temp_shap_expr_cor_direction_override)) {
     config$shap_expr_cor_direction_filter <- temp_shap_expr_cor_direction_override
   }
+
+  # Object adapters record a mapping only when a source split name collides
+  # with SHAPTURE's prepared condition/sample columns. This also keeps older
+  # copied scripts that pass the source name into shapture_config working.
+  config$split_by_col <- resolve_mapped_prepared_column(
+    column_name = config$split_by_col,
+    dataset_all = dataset_all
+  )
+  config$one_vs_others_col <- resolve_mapped_prepared_column(
+    column_name = config$one_vs_others_col,
+    dataset_all = dataset_all
+  )
   
   config$comparison_mode <- normalize_comparison_mode(config$comparison_mode)
   
@@ -2910,6 +2922,15 @@ run_shapture_pipeline <- function(
       identical(one_vs_others_negative_label, "others")) {
     one_vs_others_negative_label <- legacy_args$one_vs_rest_negative_label
   }
+
+  split_by_col <- resolve_mapped_prepared_column(
+    column_name = split_by_col,
+    dataset_all = dataset_all
+  )
+  one_vs_others_col <- resolve_mapped_prepared_column(
+    column_name = one_vs_others_col,
+    dataset_all = dataset_all
+  )
   
   comparison_mode <- normalize_comparison_mode(comparison_mode)
   comparison_mode <- match.arg(comparison_mode, c("condition_vs_condition", "one_vs_others"))

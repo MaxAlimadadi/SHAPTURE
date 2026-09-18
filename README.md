@@ -135,6 +135,31 @@ Template scripts for preparing data and running analyses are in `pipeline/`.
 They are meant to be copied or edited for a project, not treated as fixed
 package internals.
 
+When `build_dataset_from_seurat()` or `build_dataset_from_sce()` is used, the
+source metadata columns named by `condition_col`, `sample_col`, and
+`split_by_col` may have any valid source names. The adapters standardize the
+first two roles to `condition` and `sample_id` in `dataset_all`. If a source
+split name would collide with either standardized name, the adapter creates a
+safe internal alias. Always use the returned name when building the analysis
+config:
+
+```r
+dataset_all <- dataset_res$dataset_all
+what_genes <- dataset_res$what_genes
+analysis_split_by_col <- dataset_res$split_by_col
+
+shapture_config$split_by_col <- analysis_split_by_col
+```
+
+For example, `condition_col = "CXCR3_status"` and
+`split_by_col = "condition"` are valid together. The biological outcome stays
+in `dataset_all$condition`, while the source `condition` metadata is carried in
+the collision-safe column reported by `dataset_res$split_by_col`. This mapping
+changes column bookkeeping only; values and analysis calculations are not
+modified. For backward compatibility, `resolve_shapture_script_config()` also
+recognizes the source split name when `dataset_all` came directly from one of
+these adapters.
+
 ## Quick start
 
 After preparing `dataset_all` and `what_genes`, define a SHAPTURE config and

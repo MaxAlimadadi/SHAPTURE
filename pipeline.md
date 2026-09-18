@@ -33,6 +33,7 @@ The main script assumes that `dataset_all` already exists in memory before the m
 - extracts marker features from `type_markers(sce)` and `state_markers(sce)`
 - optionally removes unwanted markers
 - creates `dataset_all`
+- returns the prepared-data split name in `dataset_res$split_by_col`
 
 #### 2. From a Seurat object
 `getting_data_from_Seurat.R`:
@@ -42,6 +43,15 @@ The main script assumes that `dataset_all` already exists in memory before the m
 - finds variable features
 - extracts normalized expression values from the `data` layer
 - creates `dataset_all`
+- returns the prepared-data split name in `dataset_res$split_by_col`
+
+For both adapters, `condition_col`, `sample_col`, and `split_by_col` refer to
+columns in the source object's metadata and may have arbitrary names. SHAPTURE
+standardizes the prepared outcome and sample roles to `condition` and
+`sample_id`. If the source split name conflicts with either standardized name,
+the adapter stores it under a deterministic internal alias. The analysis
+config must therefore use `dataset_res$split_by_col`, as shown in the template
+scripts. Nonconflicting split names are preserved exactly.
 
 ---
 

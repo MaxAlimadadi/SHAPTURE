@@ -1,3 +1,16 @@
+# SHAPTURE 0.0.0.9017
+
+- Seurat and SingleCellExperiment adapters now accept source split columns
+  whose names overlap SHAPTURE's prepared-data `condition` or `sample_id`
+  fields. Conflicting split names receive a deterministic internal alias,
+  returned as `dataset_res$split_by_col` with a source-to-prepared
+  `column_mapping` table.
+- The editable data-preparation templates now pass the returned prepared split
+  name into analysis configuration. Nonconflicting inputs retain their prior
+  names, values, column order, and analytical behavior. The script-config
+  resolver also translates the source split name for compatibility with older
+  copied templates.
+
 # SHAPTURE 0.0.0.9016
 
 - Dependency plots now add a 3% visual margin around the observed SHAP and

@@ -66,6 +66,9 @@ dataset_res <- do.call(
 
 dataset_all <- dataset_res$dataset_all
 what_genes <- dataset_res$what_genes
+# Always use the prepared-data split name returned by the adapter. It is the
+# original name unless that name would collide with an internal metadata field.
+analysis_split_by_col <- dataset_res$split_by_col
 
 #####
 # 5. Define analysis settings
@@ -77,7 +80,7 @@ what_genes <- dataset_res$what_genes
 
 shapture_config_condition_vs_condition <- list(
   # subset column; use NULL for one global condition-vs-condition run
-  split_by_col = data_prep_config$split_by_col,
+  split_by_col = analysis_split_by_col,
   
   # optional split_by_col levels to keep before analysis; NULL keeps all levels
   subset_levels = NULL,
@@ -169,7 +172,7 @@ shapture_config_condition_vs_condition <- list(
 
 shapture_config_one_vs_others <- list(
   # target-defining column for one-vs-others mode
-  split_by_col = data_prep_config$split_by_col,
+  split_by_col = analysis_split_by_col,
   
   # optional split_by_col levels to keep before analysis; NULL keeps all levels.
   # In one_vs_others, this defines the universe used to build the pooled "others" class.

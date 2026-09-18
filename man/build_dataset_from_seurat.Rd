@@ -35,7 +35,12 @@ assay/layer are used.}
 \item{condition_levels}{Optional levels to retain from \code{condition_col}.}
 }
 \value{
-A list with \code{dataset_all} and \code{what_genes}.
+A list with \code{dataset_all}, \code{what_genes}, the prepared-data
+\code{split_by_col} name, and a \code{column_mapping} table. Source metadata names
+may be arbitrary. If the requested split name conflicts with SHAPTURE's
+prepared-data columns (\code{condition} or \code{sample_id}) or a feature name, the
+split is stored under a deterministic internal alias returned in
+\code{split_by_col}.
 }
 \description{
 Build SHAPTURE input from a Seurat object
