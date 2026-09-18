@@ -38,6 +38,9 @@ top_feature_label <- 15
 # Number of features used in the larger heatmap and decomposition figures.
 top_feature_show_extended <- 100
 
+# Filled-hexagon size in the equal-count binned beeswarm for every folder.
+binned_beeswarm_hexagon_size <- 0.98
+
 #####
 # Automatic figure-size growth
 #####
@@ -65,6 +68,12 @@ if (!is.numeric(top_feature_show_extended) || length(top_feature_show_extended) 
     !is.finite(top_feature_show_extended) || top_feature_show_extended < 1L ||
     top_feature_show_extended != floor(top_feature_show_extended)) {
   stop("top_feature_show_extended must be a positive integer.")
+}
+if (!is.numeric(binned_beeswarm_hexagon_size) ||
+    length(binned_beeswarm_hexagon_size) != 1L ||
+    !is.finite(binned_beeswarm_hexagon_size) ||
+    binned_beeswarm_hexagon_size <= 0) {
+  stop("binned_beeswarm_hexagon_size must be one positive finite number.")
 }
 
 result_folders <- find_shapture_result_folders(analysis_root)
@@ -298,7 +307,8 @@ for (result_dir in result_folders) {
     task_what_0 = viz$task_what_0,
     task_what_1 = viz$task_what_1,
     group_colors = viz$group_colors,
-    continuous_colors = viz$continuous_colors
+    continuous_colors = viz$continuous_colors,
+    hexagon_size = binned_beeswarm_hexagon_size
   )
   plot_objects$binned_beeswarm <- binned_beeswarm_plot
 

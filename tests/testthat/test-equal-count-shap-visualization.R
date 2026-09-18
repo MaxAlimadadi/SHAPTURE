@@ -118,6 +118,8 @@ test_that("Binned beeswarm and dependency plots share clear labels", {
   expect_equal(binned_beeswarm$labels$colour, "Mean feature value")
   expect_equal(dependency$labels$colour, "Mean feature value")
   expect_equal(dependency$labels$y, "Scaled gene_A value")
+  expect_identical(dependency$theme$plot.title.position, "plot")
+  expect_equal(as.numeric(dependency$theme$plot.subtitle$margin[3]), 12)
 
   expect_s3_class(binned_beeswarm$layers[[1]]$geom, "GeomShaptureHexPoint")
   expect_s3_class(dependency$layers[[1]]$geom, "GeomShaptureHexPoint")
@@ -130,6 +132,29 @@ test_that("Binned beeswarm and dependency plots share clear labels", {
   expect_true(all(!is.na(dependency_hexagons$gp$fill)))
   expect_equal(length(beeswarm_hexagons$id), nrow(groups) * 6L)
   expect_equal(length(dependency_hexagons$id), sum(groups$feature == "gene_A") * 6L)
+
+  smaller_hexagons <- build_shapture_binned_beeswarm_plot(
+    combined_results = inputs$combined_results,
+    grouped_data = groups,
+    task_what_0 = "control",
+    task_what_1 = "case",
+    group_colors = c("darkblue", "darkred"),
+    continuous_colors = c("blue", "white", "red"),
+    hexagon_size = 0.6
+  )
+  expect_equal(smaller_hexagons$layers[[1]]$aes_params$size, 0.6)
+  expect_error(
+    build_shapture_binned_beeswarm_plot(
+      inputs$combined_results,
+      groups,
+      "control",
+      "case",
+      c("darkblue", "darkred"),
+      c("blue", "white", "red"),
+      hexagon_size = 0
+    ),
+    "positive finite number"
+  )
 })
 
 

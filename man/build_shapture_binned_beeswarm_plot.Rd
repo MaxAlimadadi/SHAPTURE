@@ -10,7 +10,8 @@ build_shapture_binned_beeswarm_plot(
   task_what_0,
   task_what_1,
   group_colors,
-  continuous_colors
+  continuous_colors,
+  hexagon_size = 0.98
 )
 }
 \arguments{
@@ -25,6 +26,8 @@ build_shapture_binned_beeswarm_plot(
 \item{group_colors}{Two group colors: condition 0 then condition 1.}
 
 \item{continuous_colors}{Continuous feature-value palette.}
+
+\item{hexagon_size}{Positive numeric size for the filled beeswarm hexagons.}
 }
 \value{
 A ggplot object.

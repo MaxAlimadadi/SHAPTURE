@@ -1,3 +1,11 @@
+# SHAPTURE 0.0.0.9015
+
+- Added the editable `binned_beeswarm_hexagon_size` setting to both
+  visualization recipes and a validated `hexagon_size` argument to the plot
+  builder. The default remains `0.98`.
+- Dependency-plot explanatory text now has a dedicated top header margin so it
+  stays outside the SHAP-feature coordinate panel.
+
 # SHAPTURE 0.0.0.9014
 
 - Reduced the filled-hexagon size in the equal-count binned beeswarm so its

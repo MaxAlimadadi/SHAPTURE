@@ -814,6 +814,7 @@ geom_shapture_hex_point <- function(
 #' @param task_what_1 Condition 1 label.
 #' @param group_colors Two group colors: condition 0 then condition 1.
 #' @param continuous_colors Continuous feature-value palette.
+#' @param hexagon_size Positive numeric size for the filled beeswarm hexagons.
 #'
 #' @return A ggplot object.
 #' @export
@@ -823,8 +824,13 @@ build_shapture_binned_beeswarm_plot <- function(
     task_what_0,
     task_what_1,
     group_colors,
-    continuous_colors
+    continuous_colors,
+    hexagon_size = 0.98
 ) {
+  if (!is.numeric(hexagon_size) || length(hexagon_size) != 1L ||
+      !is.finite(hexagon_size) || hexagon_size <= 0) {
+    stop("hexagon_size must be one positive finite number.")
+  }
   required_columns <- c("feature", "mean_shap", "mean_feature_value", "n_units")
   missing_columns <- setdiff(required_columns, colnames(grouped_data))
   if (length(missing_columns) > 0L) {
@@ -888,7 +894,7 @@ build_shapture_binned_beeswarm_plot <- function(
         orientation = "y",
         na.rm = TRUE
       ),
-      size = 0.98,
+      size = hexagon_size,
       alpha = 0.98,
       na.rm = TRUE
     ) +
@@ -1068,8 +1074,16 @@ build_shapture_dependency_plot <- function(
     ggplot2::theme_classic(base_size = 12) +
     ggplot2::theme(
       aspect.ratio = 1 / 1.3,
-      plot.title = ggplot2::element_text(size = 10),
-      plot.subtitle = ggplot2::element_text(size = 7.5, color = "#4A5658"),
+      plot.title.position = "plot",
+      plot.title = ggplot2::element_text(
+        size = 10,
+        margin = ggplot2::margin(b = 2)
+      ),
+      plot.subtitle = ggplot2::element_text(
+        size = 7.5,
+        color = "#4A5658",
+        margin = ggplot2::margin(b = 12)
+      ),
       axis.text.x = ggplot2::element_text(colour = "black"),
       legend.position = "right",
       legend.title = ggplot2::element_text(size = 9),

@@ -361,9 +361,11 @@ valid cells or metacells in each group, and displays original units when fewer
 than 500 are available. Groups are formed jointly from SHAP and model-seen
 feature values after mapping both dimensions to 0-1 for grouping only. Each
 filled geometric hexagon is placed at its group's mean SHAP and mean feature
-value. This binning
-is only for display: scores, correlations, rankings, and dependency smooths
-continue to use the original unbinned values. Output names use the number of
+value. Set `binned_beeswarm_hexagon_size` in either editable visualization
+script to make the binned-beeswarm symbols smaller or larger; the default is
+`0.98`. This binning is only for display: scores, correlations, rankings, and
+dependency smooths continue to use the original unbinned values. Output names
+use the number of
 features actually displayed rather than the requested number when fewer saved
 features are available.
 
