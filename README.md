@@ -350,6 +350,11 @@ without retraining models.
 
 The editable settings near the top of the script include
 `top_feature_show`, `top_feature_label`, and `top_feature_show_extended`.
+Condition-level waterfall plots display up to `top_feature_show` rows and label
+all of them, including any collapsed "other features" row. `top_feature_label`
+controls selective labels in force and scatter plots, not waterfalls. For
+example, show 50 and label 15 keeps all waterfall rows labeled, while the force
+plot labels only its top 15 individual features plus any "other features" group.
 Figures whose layout depends on feature count are sized automatically from the
 actual number displayed. `width_per_feature` and `height_per_feature` control
 the global growth rate; plot-specific base sizes and minimum/maximum safeguards

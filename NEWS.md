@@ -1,3 +1,13 @@
+# SHAPTURE 0.0.0.9018
+
+- Condition-level waterfall plots now label every displayed feature, independent
+  of `top_feature_label`. This prevents unlabeled contributions from collapsing
+  onto the same row when fewer labels than displayed features are requested.
+  Both editable visualization recipes use `top_feature_show` for the waterfall
+  display count. Force plots still use `top_feature_label` for selective labels.
+- This is a visualization-only fix; analysis, SHAP values, scores, and rankings
+  are unchanged. Previously saved results can be redrawn without rerunning models.
+
 # SHAPTURE 0.0.0.9017
 
 - Seurat and SingleCellExperiment adapters now accept source split columns

@@ -33,6 +33,7 @@ save_plot_objects <- FALSE
 top_feature_show <- 50
 
 # Number of displayed features labeled in plots that support selective labels.
+# Waterfall plots always label every displayed feature.
 top_feature_label <- 15
 
 # Number of features used in the larger heatmap and decomposition figures.
@@ -191,8 +192,7 @@ for (result_dir in result_folders) {
     waterfall_plot <- build_shapture_condition_waterfall_plot(
       condition_shapviz = condition_shapviz,
       condition_label = condition_label,
-      max_display = top_feature_show_actual,
-      top_feature_label = top_feature_label_actual
+      max_display = top_feature_show_actual
     )
     plot_objects[[paste0("waterfall_", condition_label)]] <- waterfall_plot
 

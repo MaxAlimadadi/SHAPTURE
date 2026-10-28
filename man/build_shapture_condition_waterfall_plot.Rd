@@ -18,7 +18,9 @@ build_shapture_condition_waterfall_plot(
 
 \item{max_display}{Number of features to display.}
 
-\item{top_feature_label}{Number of highest absolute-SHAP feature labels to keep.}
+\item{top_feature_label}{Retained for compatibility with older scripts and
+ignored. Waterfall plots label every displayed feature; use \code{max_display}
+to control the displayed count.}
 }
 \value{
 A ggplot object.

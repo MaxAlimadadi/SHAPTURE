@@ -1421,7 +1421,9 @@ add_shapture_average_labels <- function(plot, condition_shapviz, top_feature_lab
 #' @param condition_shapviz One-row shapviz object.
 #' @param condition_label Label for the condition.
 #' @param max_display Number of features to display.
-#' @param top_feature_label Number of highest absolute-SHAP feature labels to keep.
+#' @param top_feature_label Retained for compatibility with older scripts and
+#'   ignored. Waterfall plots label every displayed feature; use `max_display`
+#'   to control the displayed count.
 #'
 #' @return A ggplot object.
 #' @export
@@ -1434,7 +1436,8 @@ build_shapture_condition_waterfall_plot <- function(condition_shapviz, condition
     )) +
     ggplot2::theme(plot.title = ggplot2::element_text(size = 11))
   
-  waterfall_plot <- add_shapture_average_labels(waterfall_plot, condition_shapviz, top_feature_label)
+  # Waterfall labels define distinct rows, so blank labels collapse the layout.
+  waterfall_plot <- add_shapture_average_labels(waterfall_plot, condition_shapviz)
   
   sanitize_shapviz_plot(waterfall_plot)
 }
