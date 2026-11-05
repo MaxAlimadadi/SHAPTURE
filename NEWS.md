@@ -1,3 +1,13 @@
+# SHAPTURE 0.1.0
+
+- Prepared version 0.1.0 from the existing development workflow. Modeling,
+  sampling, scoring, and visualization calculations are unchanged.
+- Corrected the author and copyright holder to Max Alimadadi and added the
+  maintainer's contact address.
+- Simplified source-package exclusions to include only package files,
+  documentation, tests, and all editable pipeline templates. Local analyses
+  and draft material remain outside the package archive.
+
 # SHAPTURE 0.0.0.9020
 
 - Removed the optional source loader from `pipeline/`. Data preparation,
