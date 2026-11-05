@@ -1,5 +1,7 @@
 # SHAPTURE
 
+Current release: [v0.1.0](https://github.com/MaxAlimadadi/SHAPTURE/releases/tag/v0.1.0).
+
 SHAPTURE is an R package for sample-aware, SHAP-based feature discovery in
 single-cell and metacell data. It is designed for studies where the main
 question is not only whether a model can separate two groups, but which
@@ -34,12 +36,29 @@ components:
 - Cross-patient support
 - model reproducibility
 
+The default weights are 0.25, 0.25, 0.30, 0.10, and 0.10 in that order.
+Set `default_prior_scores_weights` to change them. Adaptive weighting is off
+by default; when enabled, it adjusts the prior weights using robust differences
+between component values across features, then shrinks the adjustment toward
+the priors.
+
+Repeated held-out SHAP and model-input feature values are averaged for each
+observed cell/metacell-feature pair. Iterations where a feature was not included
+are missing observations, not zeros. Main SHAP importance is then the mean
+absolute value of those averaged SHAP contributions across evaluated units.
+
 The expression signal combines absolute expression log2FC, absolute
 detection-rate difference, and within-condition expression consistency. The
 consistency term is calculated separately in each condition from the original
 cell values using a zero-preserving robust coefficient of variation, converted
 to a 0-1 score, and averaged with equal condition weight. This calculation uses
 the original cells even when metacells are used for model fitting.
+
+Expression log2FC is a pseudocount-stabilized log2 ratio of group means on the
+supplied expression scale, before train/test preprocessing. It uses the task's
+modeling units, whereas detection and consistency use original cells. On
+log-normalized inputs, this is not the same as a fold change calculated from
+untransformed counts. Detection means a value greater than zero.
 
 Cross-patient support asks whether the three main evidence streams persist when
 patients are resampled as complete blocks. By default, SHAPTURE runs 500
@@ -53,6 +72,8 @@ the frequency of bootstraps that retain the required direction and correlation
 threshold. The number of replicates is controlled by
 `cross_patient_bootstraps`. If there are too few patients, this component is
 left unavailable and the remaining four score weights are renormalized.
+These bootstraps reuse the saved held-out SHAP profiles; they do not refit the
+machine-learning models.
 
 Cross-patient bootstrap calculations can run in parallel without changing the
 patient resampling plans or score calculations. `n_cores` is the requested
@@ -92,25 +113,30 @@ just a model accuracy report.
 
 ## Installation
 
-Install the development version from GitHub:
+SHAPTURE declares R 4.3.0 or later. Dependency versions must also support your
+R version. Install the Bioconductor dependencies first; they are currently
+required by the package even when you use Seurat or a prepared table.
 
 ```r
-install.packages("remotes")
-remotes::install_github("MaxAlimadadi/SHAPTURE")
+install.packages(c("remotes", "BiocManager"))
+BiocManager::install(
+  c("SingleCellExperiment", "SummarizedExperiment", "CATALYST", "ComplexHeatmap"),
+  ask = FALSE,
+  update = FALSE
+)
+
+remotes::install_github("MaxAlimadadi/SHAPTURE@v0.1.0", upgrade = "never")
 ```
 
-Some workflows use Bioconductor packages such as `SingleCellExperiment`,
-`SummarizedExperiment`, and `CATALYST`. Install those with Bioconductor if your
-analysis starts from SCE / CATALYST objects.
+`BiocManager` selects the Bioconductor release appropriate for your R version.
+See the [Bioconductor installation guide](https://bioconductor.org/install/)
+if dependency installation fails. Some dependencies may need system compilers
+when a suitable binary package is unavailable.
+
+To use the development branch instead of the fixed release:
 
 ```r
-install.packages("BiocManager")
-BiocManager::install(c(
-  "SingleCellExperiment",
-  "SummarizedExperiment",
-  "CATALYST",
-  "ComplexHeatmap"
-))
+remotes::install_github("MaxAlimadadi/SHAPTURE", ref = "main", upgrade = "never")
 ```
 
 After installation, load SHAPTURE in your R session:
@@ -123,20 +149,39 @@ The editable scripts in `pipeline/` use the installed package. SHAPTURE loads
 its internal helper functions automatically; you do not need to source
 individual files from `R/` or load a separate helper script.
 
+For editable scripts, download the
+[v0.1.0 repository snapshot](https://github.com/MaxAlimadadi/SHAPTURE/archive/refs/tags/v0.1.0.zip)
+and copy its `pipeline/` folder into your project. Installing the R package does
+not create those scripts in your working directory. You can also browse the
+[release templates](https://github.com/MaxAlimadadi/SHAPTURE/tree/v0.1.0/pipeline)
+on GitHub. The release includes a standard R source-package archive; GitHub's
+separate Packages registry is not needed for this installation.
+
+Start with `pipeline/getting_data_from_Seurat.R` or
+`pipeline/getting_data_from_sce.R`, edit its input and metadata settings, then
+run `pipeline/run_shapture_analysis.R`. The quick start below shows the
+equivalent function calls after preparing the input.
+
 ## Input data
 
-The modeling functions expect a table with one row per cell or metacell. At
-minimum, the table should contain:
+Prepare a table with one row per original cell. SHAPTURE can construct metacells
+internally while keeping the original cells for detection and consistency
+calculations. At minimum, the table should contain:
 
 - `condition`: the two biological groups to compare
 - `sample_id`: patient, donor, or sample identifier
-- optional `split_level_column`: subset, cluster, cell type, sex, batch, or another
-  stratifying label
+- an optional metadata column named by `split_level_column`, such as `cell_type`
 - feature columns: genes, proteins, markers, or other numeric predictors
+
+Use appropriately normalized, finite, non-negative feature values, not a
+centered or z-scored input matrix. The expression-consistency calculation
+rejects negative values. Model preprocessing is a separate train-only step.
+Condition and sample identifiers should be non-missing. For condition-vs-condition
+analyses, retain only the two intended conditions before running.
 
 Example structure:
 
-| condition | sample_id | split_level_column | GeneA | GeneB | GeneC |
+| condition | sample_id | cell_type | GeneA | GeneB | GeneC |
 |---|---|---|---:|---:|---:|
 | control | S1 | subset_1 | 0.14 | 1.22 | 0.00 |
 | disease | S2 | subset_1 | 0.51 | 0.92 | 0.07 |
@@ -144,6 +189,13 @@ Example structure:
 Template scripts for preparing data and running analyses are in `pipeline/`.
 They are meant to be copied or edited for a project, not treated as fixed
 package internals.
+
+The Seurat adapter joins assay layers when available, runs `LogNormalize`
+with a scale factor of 10,000 on the selected assay, and reads the requested
+layer (`"data"` by default). The SCE adapter expects an `exprs` assay. It uses
+CATALYST type/state markers when `feature_cols = NULL`; pass an explicit
+feature list for an SCE without that marker annotation. Supplying a prepared
+table avoids the object adapters' extraction and normalization steps.
 
 When `build_dataset_from_seurat()` or `build_dataset_from_sce()` is used, the
 source metadata columns named by `condition_col`, `sample_col`, and
@@ -157,11 +209,9 @@ config:
 dataset_all <- dataset_res$dataset_all
 what_genes <- dataset_res$what_genes
 analysis_split_level_column <- dataset_res$split_level_column
-
-shapture_config$split_level_column <- analysis_split_level_column
 ```
 
-For example, `condition_col = "CXCR3_status"` and
+For example, `condition_col = "group"` and
 `split_level_column = "condition"` are valid together. The biological outcome stays
 in `dataset_all$condition`, while the source `condition` metadata is carried in
 the collision-safe column reported by `dataset_res$split_level_column`. This mapping
@@ -179,7 +229,8 @@ run the pipeline.
 library(SHAPTURE)
 
 shapture_config <- list(
-  split_level_column = "your_subset_column",
+  # For an object adapter, use dataset_res$split_level_column here.
+  split_level_column = "cell_type",
   split_levels_to_analyze = NULL,
   comparison_mode = "condition_vs_condition",
   what_0 = "control",
@@ -219,9 +270,16 @@ pipeline_config <- resolve_shapture_script_config(
 do.call(run_shapture_pipeline, pipeline_config)
 ```
 
+This example uses single cells, XGBoost, and safe memory mode. Replace the
+column and condition labels with your own. If you used an object adapter,
+set `split_level_column` to `dataset_res$split_level_column` so any collision-safe
+column mapping is respected. Set it to `NULL` for one pooled condition comparison.
+The analysis saves tables and reusable plotting inputs; figures are generated
+afterward with the visualization scripts.
+
 For a complete parameter reference, see:
 
-```r
+```text
 pipeline/shapture_config_full_reference.R
 ```
 
@@ -240,6 +298,14 @@ Keep the same input data and row order, package versions, settings, and
 Every completed task records its complete seed plan in
 `docs/reproducibility_seeds.csv`.
 
+### Memory use
+
+`memory_mode = "safe"` stores large iteration-level SHAP payloads in temporary
+disk chunks and reads them back in stages. The chunks are removed when the task
+finishes. `"full"` keeps those payloads in memory. Both modes use the same
+unit-averaging and scoring rules; saved per-feature plotting inputs can differ
+in size, as noted below.
+
 ### Parallel execution
 
 Set `n_cores` to the maximum number of workers you want SHAPTURE to use. Model
@@ -253,6 +319,11 @@ serially with the same deterministic bootstrap plans.
 The applied backend, resource estimates, worker count, timing, and fallback
 reason are saved in `docs/cross_patient_bootstrap_runtime.csv`. These execution
 details are also summarized in `Integrated_adaptive_scoring_results/run_summary.csv`.
+
+Metacell construction has its own `parallel_metacells` and `metacell_n_cores`
+settings. The bootstrap CPU/RAM controller does not automatically limit every
+modeling or metacell worker, so choose conservative worker counts for those
+stages on machines with limited memory.
 
 Every task also records the fixed SHAP-importance and absolute-log2FC anchors
 in `docs/score_anchor_summary.csv`. The legacy `score_scaling_method` values
@@ -297,6 +368,14 @@ result folders for:
 - `B` vs all other retained levels
 - `C` vs all other retained levels
 
+Set `comparison_mode = "one_vs_others"` and supply `split_level_column`.
+Task labels are assigned from each target level and `"others"`. Both object
+adapters still require valid `condition_col` and `sample_col` metadata columns;
+the one-vs-others class labels come from the split column instead of the
+biological condition column. If no separate biological condition exists, a
+constant metadata column can fill that adapter role. Ensure any input-level
+condition filtering in your preparation script retains the intended cells.
+
 `split_levels_to_analyze` selects analysis tasks, not the data retained in the
 input. `NULL` analyzes all available levels. Filter your object or prepared
 table before running SHAPTURE if you want to exclude levels entirely. For
@@ -322,6 +401,11 @@ Before modeling each task, SHAPTURE can filter features using:
 - detection rate in the original single-cell task data
 - absolute expression log2FC in the original single-cell task data
 
+The defaults keep a feature when it is greater than zero in more than 25% of
+cells in at least one group and has absolute expression log2FC at least 0.25.
+Set `feature_min_pct` or `feature_min_log2FC` to zero to disable that prefilter.
+The two original-cell prefilters are applied even when modeling uses metacells.
+
 After SHAP values are calculated, SHAPTURE keeps features with interpretable
 model-expression patterns. A retained feature should have enough expression
 change and enough value-to-SHAP correlation to support one of these statements:
@@ -330,10 +414,16 @@ change and enough value-to-SHAP correlation to support one of these statements:
 - higher feature values push the model toward condition 0 or reference
 
 Features without enough directional evidence are removed before final ranking.
+The final pattern requires matching signs of expression log2FC and the
+Spearman value-SHAP correlation, with magnitudes at least
+`feature_min_log2FC` and `shap_expr_cor_cutoff`, respectively. The default
+correlation cutoff is 0.25. `combined_results.csv` therefore ranks only the
+retained features, not the original candidate list.
 
 ## Outputs
 
-Each analysis task creates a result folder with:
+Analysis saves tables and reusable plot inputs; it does not render figures.
+Each completed task includes:
 
 - `docs/combined_results.csv`: ranked feature table
 - `docs/shapture_config_used.csv`: resolved parameters used for that run
@@ -347,30 +437,43 @@ Each analysis task creates a result folder with:
 - `docs/patient_feature_coverage_summary.csv`: held-out patient coverage by gene
 - `docs/cross_patient_bootstrap_runtime.csv`: applied serial or parallel
   bootstrap backend, CPU/RAM safeguards, timing, and fallback status
-- `docs/equal_count_shap_group_summary.csv`: feature-specific equal-count
-  groups used by the binned beeswarm and dependency plots
 - `Integrated_adaptive_scoring_results/run_summary.csv`: compact task settings,
   patient split outcome, coverage, feature counts, model performance, and
   Cross-patient bootstrap runtime summary
-- `Integrated_adaptive_scoring_results/`: summary figures
-- `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`: one
-  SHAP-value dependency PDF for every feature shown in the beeswarm
-- `SHAP_only/`: SHAP-only condition summaries
 
 The pipeline also saves `docs/visualization_inputs.rds`, which lets you redraw
 figures later without rerunning the model.
+
+After you run the visualization script, it adds:
+
+- `Integrated_adaptive_scoring_results/`: integrated-score and diagnostic figures
+- `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`: one
+  dependency PDF for each feature actually shown in the beeswarm
+- `SHAP_only/`: condition-level SHAP waterfall and force figures
+- `docs/equal_count_shap_group_summary.csv`: groups used by the binned beeswarm
+  and dependency plots
+
+Some audit files are written only when relevant; patient-rotation and
+patient-feature coverage audits apply to unseen-patient testing.
 
 ## Redrawing figures after analysis
 
 After a run finishes, edit:
 
-```r
+```text
 pipeline/run_shapture_visualization.R
 ```
 
 Set `result_dir` to a completed result folder, then rerun the script. This
 lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
+
+The full retained ranking remains in `combined_results.csv`. In safe memory
+mode, saved beeswarm and dependency inputs are limited to the analysis-time
+`top_feature_show`; density inputs are limited in both memory modes. Later
+visualization settings cannot recover unsaved per-unit values. If you expect
+to expand those figures later, choose a sufficiently large analysis-time
+`top_feature_show`. This display/storage setting does not truncate the ranking.
 
 The editable settings near the top of the script include
 `top_feature_show`, `top_feature_label`, and `top_feature_show_extended`.
@@ -394,7 +497,7 @@ and 50 features are arranged as 4 by 3, 5 by 4, 6 by 5, and 8 by 7 grids.
 
 To redraw several completed result folders with the same settings, edit:
 
-```r
+```text
 pipeline/run_shapture_visualization_loop_multiple_folder.R
 ```
 
@@ -402,6 +505,10 @@ Set `analysis_root` to their immediate parent directory. The script detects
 subfolders containing both `docs/combined_results.csv` and
 `docs/visualization_inputs.rds`, so it works for condition-vs-condition and
 one-vs-others results without depending on folder names.
+
+Feature-importance bars display the integrated final score, not raw SHAP
+importance. Score decomposition and the component heatmaps show the evidence
+behind that integrated score.
 
 Feature names in the beeswarm and feature-importance plots use the same
 `Model_expression_pattern` colors: `group_colors[2]` for condition 1/target
@@ -414,14 +521,19 @@ groups for each feature. The script aims for 500 groups, keeps at least 10
 valid cells or metacells in each group, and displays original units when fewer
 than 500 are available. Groups are formed jointly from SHAP and model-seen
 feature values after mapping both dimensions to 0-1 for grouping only. Each
-filled geometric hexagon is placed at its group's mean SHAP and mean feature
-value. Set `binned_beeswarm_hexagon_size` in either editable visualization
+hexagon uses mean SHAP on the x-axis and mean feature value as its color.
+The dependency plot also uses mean feature value on the y-axis; the binned
+beeswarm instead groups hexagons by feature with Tukey vertical spreading.
+Set `binned_beeswarm_hexagon_size` in either editable visualization
 script to make the binned-beeswarm symbols smaller or larger; the default is
 `0.98`. This binning is only for display: scores, correlations, rankings, and
 dependency smooths continue to use the original unbinned values. Output names
-use the number of
-features actually displayed rather than the requested number when fewer saved
-features are available.
+use the number of features actually displayed rather than the requested number
+when fewer saved features are available.
+
+`save_plot_objects = FALSE` is the visualization default. Set it to `TRUE`
+to save the generated objects in `docs/plots.rds` for later editing. The
+plotting inputs are saved during analysis regardless of this choice.
 
 Dependency plots reserve their explanatory sentence above the coordinate panel
 and add a 3% display margin around both axes so boundary hexagons remain fully
@@ -431,7 +543,7 @@ visible. This margin changes only the displayed limits.
 
 When an analysis produces several split-level result folders, edit:
 
-```r
+```text
 pipeline/run_shapture_global_visualization.R
 ```
 
@@ -451,8 +563,12 @@ match. Condition-vs-condition folders must use the same condition labels. For
 one-vs-others results, directions are normalized to target versus others before
 folders are compared.
 
-Both figures use average-linkage hierarchical clustering by default. Their PDF
-dimensions are calculated after loading the results, using the actual plotted
+Both figures use average-linkage hierarchical clustering by default. The
+landscape clusters rows and columns using Euclidean distances between final-score
+profiles. A gray cell means a feature was not selected for that comparison;
+missing entries are treated as zero only when computing clustering distances,
+not as observed scores. Similarity clustering uses `1 - direction-aware Jaccard`.
+PDF dimensions are calculated after loading the results, using the actual plotted
 feature and split-level counts. The cross-level landscape grows with both
 matrix dimensions, while the square Jaccard view grows with the split-level
 count. The visible `width` and `height` controls default to `NULL`; replace
@@ -481,11 +597,24 @@ condition-vs-condition task, or at least two patients in total for a
 one-vs-others task. This is a resampling-based support measure, not a p-value or
 independent validation.
 
-## Development status
+Feature prefiltering and task-level score anchors use the full task data.
+Held-out AUC should therefore not be read as an independent end-to-end
+validation of the complete marker-selection workflow. Model reproducibility
+describes repeated-fit consistency, not independent biological replication.
 
-SHAPTURE is under active development. The current focus is making the workflow
-cleaner as an R package while preserving the existing analysis behavior.
+## Release status and support
+
+`v0.1.0` is the first public release. It passed source installation and
+`R CMD check --no-manual` with no errors, warnings, or notes. All 609 test
+assertions passed, including parallel-worker tests, on macOS with R 4.4.0.
+Other platforms and R versions were not retested for this release. The package
+remains under active development.
+
+Maintained by Max Alimadadi. Please use
+[GitHub Issues](https://github.com/MaxAlimadadi/SHAPTURE/issues) for questions
+and bug reports, and include your R version, SHAPTURE version, and a small
+reproducible example when possible.
 
 ## License
 
-MIT. See `LICENSE.md`.
+Released under the [MIT license](LICENSE.md).
