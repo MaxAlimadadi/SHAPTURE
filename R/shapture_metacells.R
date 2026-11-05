@@ -100,7 +100,7 @@ compute_knn_indices <- function(embedding, k) {
 #' @param dataset Full analysis data set.
 #' @param feature_cols Numeric feature columns.
 #' @param sample_col Sample identifier column.
-#' @param split_by_col Column defining the analysis subset used for within-group
+#' @param split_level_column Column defining the analysis subset used for within-group
 #'   metacell construction. Metacells are also built within condition.
 #' @param condition_col Condition column.
 #' @param min_cells_to_build Minimum rows required before metacells are built.
@@ -119,7 +119,7 @@ compute_knn_indices <- function(embedding, k) {
     dataset,
     feature_cols,
     sample_col,
-    split_by_col,
+    split_level_column,
     condition_col,
     min_cells_to_build,
     min_cells_per_metacell,
@@ -130,11 +130,11 @@ compute_knn_indices <- function(embedding, k) {
     scale_features,
     verbose
 ) {
-  sub <- dataset[idx, c(condition_col, sample_col, split_by_col, feature_cols), drop = FALSE]
+  sub <- dataset[idx, c(condition_col, sample_col, split_level_column, feature_cols), drop = FALSE]
   n_group <- nrow(sub)
   
   this_sample <- as.character(sub[[sample_col]][1])
-  this_split <- as.character(sub[[split_by_col]][1])
+  this_split <- as.character(sub[[split_level_column]][1])
   this_condition <- unique(as.character(sub[[condition_col]]))
   
   if (length(this_condition) != 1) {
@@ -170,7 +170,7 @@ compute_knn_indices <- function(embedding, k) {
     out_sub$analysis_unit <- "single_cell_fallback"
     
     return(list(
-      data = out_sub[, c(condition_col, sample_col, split_by_col, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
+      data = out_sub[, c(condition_col, sample_col, split_level_column, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
       summary = data.frame(
         sample_id = this_sample,
         split_level = this_split,
@@ -198,7 +198,7 @@ compute_knn_indices <- function(embedding, k) {
     out_sub$analysis_unit <- "single_cell_zero_var_fallback"
     
     return(list(
-      data = out_sub[, c(condition_col, sample_col, split_by_col, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
+      data = out_sub[, c(condition_col, sample_col, split_level_column, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
       summary = data.frame(
         sample_id = this_sample,
         split_level = this_split,
@@ -323,12 +323,12 @@ compute_knn_indices <- function(embedding, k) {
   agg_df$analysis_unit <- "metacell"
   agg_df[[condition_col]] <- this_condition
   agg_df[[sample_col]] <- this_sample
-  agg_df[[split_by_col]] <- this_split
+  agg_df[[split_level_column]] <- this_split
   
   row.names(agg_df) <- agg_df$metacell_id
   
   list(
-    data = agg_df[, c(condition_col, sample_col, split_by_col, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
+    data = agg_df[, c(condition_col, sample_col, split_level_column, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
     summary = data.frame(
       sample_id = this_sample,
       split_level = this_split,
@@ -348,7 +348,7 @@ compute_knn_indices <- function(embedding, k) {
 #'   feature columns.
 #' @param feature_cols Feature columns to aggregate.
 #' @param sample_col Sample identifier column.
-#' @param split_by_col Column used to keep metacells within an analysis subset.
+#' @param split_level_column Column used to keep metacells within an analysis subset.
 #'   Metacells are built within sample, split, and condition to avoid mixing
 #'   biological groups before modeling.
 #' @param condition_col Condition column.
@@ -372,7 +372,7 @@ build_grouped_metacells <- function(
     dataset,
     feature_cols,
     sample_col = "sample_id",
-    split_by_col,
+    split_level_column,
     condition_col = "condition",
     use_metacells = TRUE,
     min_cells_to_build = 40,
@@ -391,7 +391,7 @@ build_grouped_metacells <- function(
   aggregation_fun <- match.arg(aggregation_fun)
   parallel_backend <- match.arg(parallel_backend)
   
-  required_cols <- c(condition_col, sample_col, split_by_col, feature_cols)
+  required_cols <- c(condition_col, sample_col, split_level_column, feature_cols)
   missing_cols <- setdiff(required_cols, colnames(dataset))
   
   if (length(missing_cols) > 0) {
@@ -406,7 +406,7 @@ build_grouped_metacells <- function(
     
     summary_table <- data.frame(
       sample_id = out[[sample_col]],
-      split_level = out[[split_by_col]],
+      split_level = out[[split_level_column]],
       condition = out[[condition_col]],
       input_cells = 1L,
       chosen_k = 1L,
@@ -415,14 +415,14 @@ build_grouped_metacells <- function(
     )
     
     return(list(
-      data = out[, c(condition_col, sample_col, split_by_col, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
+      data = out[, c(condition_col, sample_col, split_level_column, "metacell_id", "metacell_size", "analysis_unit", feature_cols), drop = FALSE],
       summary = summary_table
     ))
   }
   
   group_key <- interaction(
     dataset[[sample_col]],
-    dataset[[split_by_col]],
+    dataset[[split_level_column]],
     dataset[[condition_col]],
     drop = TRUE,
     lex.order = TRUE
@@ -444,7 +444,7 @@ build_grouped_metacells <- function(
       dataset = dataset,
       feature_cols = feature_cols,
       sample_col = sample_col,
-      split_by_col = split_by_col,
+      split_level_column = split_level_column,
       condition_col = condition_col,
       min_cells_to_build = min_cells_to_build,
       min_cells_per_metacell = min_cells_per_metacell,
@@ -474,7 +474,7 @@ build_grouped_metacells <- function(
         "dataset",
         "feature_cols",
         "sample_col",
-        "split_by_col",
+        "split_level_column",
         "condition_col",
         "min_cells_to_build",
         "min_cells_per_metacell",

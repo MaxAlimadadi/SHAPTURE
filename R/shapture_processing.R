@@ -93,7 +93,7 @@ derive_shapture_seed_sequence <- function(root_seed, stage, n) {
 #'
 #' @param analysis_seed Positive integer reproducibility root.
 #' @param comparison_mode Comparison mode.
-#' @param split_by_col Split-defining column or `NULL`.
+#' @param split_level_column Split-defining column or `NULL`.
 #' @param temp_split Current task level.
 #' @param task_what_0 Negative/reference label.
 #' @param task_what_1 Positive/target label.
@@ -105,7 +105,7 @@ derive_shapture_seed_sequence <- function(root_seed, stage, n) {
 build_shapture_task_seed_plan <- function(
     analysis_seed,
     comparison_mode,
-    split_by_col,
+    split_level_column,
     temp_split,
     task_what_0,
     task_what_1,
@@ -123,7 +123,7 @@ build_shapture_task_seed_plan <- function(
     analysis_seed,
     "task",
     comparison_mode,
-    split_by_col,
+    split_level_column,
     temp_split,
     task_what_0,
     task_what_1
@@ -1526,7 +1526,7 @@ build_patient_coverage_aware_feature_plan <- function(
 #'   `"one_vs_others"`.
 #' @param sample_col Sample identifier column.
 #' @param condition_col Condition column.
-#' @param split_by_col Split-defining column used in one-vs-others mode.
+#' @param split_level_column Split-defining column used in one-vs-others mode.
 #' @param positive_label Positive class label.
 #' @param balance_col Name of the output balance-group column.
 #'
@@ -1537,7 +1537,7 @@ build_balance_groups <- function(
     comparison_mode = c("condition_vs_condition", "one_vs_others"),
     sample_col = "sample_id",
     condition_col = "condition",
-    split_by_col = NULL,
+    split_level_column = NULL,
     positive_label = NULL,
     balance_col = "balance_group"
 ) {
@@ -1559,8 +1559,8 @@ build_balance_groups <- function(
     return(dataset)
   }
 
-  if (is.null(split_by_col) || !split_by_col %in% colnames(dataset)) {
-    stop("split_by_col must be present in dataset for one_vs_others balancing.")
+  if (is.null(split_level_column) || !split_level_column %in% colnames(dataset)) {
+    stop("split_level_column must be present in dataset for one_vs_others balancing.")
   }
 
   if (is.null(positive_label)) {
@@ -1568,14 +1568,14 @@ build_balance_groups <- function(
   }
 
   sample_ids <- as.character(dataset[[sample_col]])
-  split_levels <- as.character(dataset[[split_by_col]])
+  split_levels_to_analyze <- as.character(dataset[[split_level_column]])
   class_labels <- as.character(dataset[[condition_col]])
 
   is_positive <- class_labels == as.character(positive_label)
   dataset[[balance_col]] <- ifelse(
     is_positive,
     sample_ids,
-    paste(sample_ids, split_levels, sep = "__")
+    paste(sample_ids, split_levels_to_analyze, sep = "__")
   )
 
   dataset

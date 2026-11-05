@@ -24,7 +24,7 @@ test_that("Seurat data preparation transposes sparse assay layers", {
   expect_true(all(c("condition", "sample_id", "geneA", "geneB") %in%
     colnames(result$dataset_all)))
   expect_true(all(vapply(result$dataset_all[c("geneA", "geneB")], is.numeric, logical(1))))
-  expect_null(result$split_by_col)
+  expect_null(result$split_level_column)
   expect_equal(
     result$column_mapping$prepared_column,
     c("condition", "sample_id")
@@ -50,12 +50,12 @@ test_that("Seurat adapter preserves nonconflicting split names", {
     seurat_obj = object,
     condition_col = "outcome",
     sample_col = "donor",
-    split_by_col = "subset_label",
+    split_level_column = "subset_label",
     genes = c("geneA", "geneB"),
     condition_levels = c("left", "right")
   )
 
-  expect_identical(result$split_by_col, "subset_label")
+  expect_identical(result$split_level_column, "subset_label")
   expect_identical(
     colnames(result$dataset_all),
     c("condition", "sample_id", "subset_label", "geneA", "geneB")
@@ -84,16 +84,16 @@ test_that("Seurat adapter aliases split names that collide with prepared metadat
     seurat_obj = object,
     condition_col = "outcome",
     sample_col = "donor",
-    split_by_col = "condition",
+    split_level_column = "condition",
     genes = c("geneA", "geneB"),
     condition_levels = c("left", "right")
   )
 
-  expect_identical(result$split_by_col, ".shapture_split_condition")
+  expect_identical(result$split_level_column, ".shapture_split_condition")
   expect_false(anyDuplicated(colnames(result$dataset_all)) > 0L)
   expect_equal(as.character(result$dataset_all$condition), c("left", "left", "right"))
   expect_equal(
-    as.character(result$dataset_all[[result$split_by_col]]),
+    as.character(result$dataset_all[[result$split_level_column]]),
     c("subset_A", "subset_B", "subset_B")
   )
   expect_equal(
@@ -126,17 +126,17 @@ test_that("SCE adapter aliases split names that collide with prepared metadata",
     sce = sce,
     condition_col = "outcome",
     sample_col = "donor",
-    split_by_col = "condition",
+    split_level_column = "condition",
     cluster_resolution = NULL,
     feature_cols = c("markerA", "markerB")
   )
 
-  expect_identical(result$split_by_col, ".shapture_split_condition")
+  expect_identical(result$split_level_column, ".shapture_split_condition")
   expect_false(anyDuplicated(colnames(result$dataset_all)) > 0L)
   expect_equal(as.character(result$dataset_all$condition), c("left", "left", "right"))
   expect_equal(as.character(result$dataset_all$sample_id), c("patient_1", "patient_1", "patient_2"))
   expect_equal(
-    as.character(result$dataset_all[[result$split_by_col]]),
+    as.character(result$dataset_all[[result$split_level_column]]),
     c("subset_A", "subset_B", "subset_B")
   )
 })
@@ -161,7 +161,7 @@ test_that("SCE adapter leaves nonconflicting prepared data unchanged", {
     sce = sce,
     condition_col = "outcome",
     sample_col = "donor",
-    split_by_col = "subset_label",
+    split_level_column = "subset_label",
     cluster_resolution = NULL,
     feature_cols = c("markerA", "markerB")
   )
@@ -173,7 +173,7 @@ test_that("SCE adapter leaves nonconflicting prepared data unchanged", {
     check.names = FALSE
   )
 
-  expect_identical(result$split_by_col, "subset_label")
+  expect_identical(result$split_level_column, "subset_label")
   expect_identical(result$dataset_all, expected)
 })
 
@@ -187,7 +187,7 @@ test_that("script config resolves source split names from collision metadata", {
     check.names = FALSE
   )
   attr(dataset_all, "shapture_column_mapping") <- data.frame(
-    role = c("condition", "sample_id", "split_by_col"),
+    role = c("condition", "sample_id", "split_level_column"),
     source_column = c("outcome", "donor", "condition"),
     prepared_column = c("condition", "sample_id", ".shapture_split_condition"),
     stringsAsFactors = FALSE
@@ -195,7 +195,7 @@ test_that("script config resolves source split names from collision metadata", {
   config_env <- list2env(list(
     condition_levels = c("left", "right"),
     shapture_config = list(
-      split_by_col = "condition",
+      split_level_column = "condition",
       comparison_mode = "condition_vs_condition",
       what_0 = "left",
       what_1 = "right"
@@ -209,9 +209,9 @@ test_that("script config resolves source split names from collision metadata", {
     main_dir = tempdir()
   )
 
-  expect_identical(resolved$split_by_col, ".shapture_split_condition")
+  expect_identical(resolved$split_level_column, ".shapture_split_condition")
   expect_identical(
-    as.character(resolved$dataset_all[[resolved$split_by_col]]),
+    as.character(resolved$dataset_all[[resolved$split_level_column]]),
     c("A", "A", "B", "B")
   )
 })
@@ -220,14 +220,14 @@ test_that("script config resolves source split names from collision metadata", {
 test_that("split aliases avoid feature-name collisions deterministically", {
   expect_identical(
     resolve_prepared_split_column(
-      split_by_col = "condition",
+      split_level_column = "condition",
       feature_names = c("geneA", ".shapture_split_condition")
     ),
     ".shapture_split_condition_2"
   )
   expect_identical(
     resolve_prepared_split_column(
-      split_by_col = "sample_id",
+      split_level_column = "sample_id",
       feature_names = "geneA"
     ),
     ".shapture_split_sample_id"

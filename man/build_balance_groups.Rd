@@ -9,7 +9,7 @@ build_balance_groups(
   comparison_mode = c("condition_vs_condition", "one_vs_others"),
   sample_col = "sample_id",
   condition_col = "condition",
-  split_by_col = NULL,
+  split_level_column = NULL,
   positive_label = NULL,
   balance_col = "balance_group"
 )
@@ -24,7 +24,7 @@ build_balance_groups(
 
 \item{condition_col}{Condition column.}
 
-\item{split_by_col}{Split-defining column used in one-vs-others mode.}
+\item{split_level_column}{Split-defining column used in one-vs-others mode.}
 
 \item{positive_label}{Positive class label.}
 

@@ -350,12 +350,12 @@ load_shapture_global_results <- function(
     list(context = context, selected = result)
   })
 
-  split_levels <- vapply(tasks, function(task) task$context$split_level, character(1))
-  if (anyNA(split_levels) || any(!nzchar(split_levels))) {
+  split_levels_to_analyze <- vapply(tasks, function(task) task$context$split_level, character(1))
+  if (anyNA(split_levels_to_analyze) || any(!nzchar(split_levels_to_analyze))) {
     stop("Every result folder must have a non-empty split-level label.")
   }
-  if (anyDuplicated(split_levels)) {
-    duplicated_levels <- unique(split_levels[duplicated(split_levels)])
+  if (anyDuplicated(split_levels_to_analyze)) {
+    duplicated_levels <- unique(split_levels_to_analyze[duplicated(split_levels_to_analyze)])
     stop(
       "Duplicate split-level labels were found: ",
       paste(duplicated_levels, collapse = ", "),
@@ -404,9 +404,9 @@ load_shapture_global_results <- function(
     comparison_label <- "Target versus others"
   }
 
-  task_order <- order(split_levels)
+  task_order <- order(split_levels_to_analyze)
   tasks <- tasks[task_order]
-  split_levels <- split_levels[task_order]
+  split_levels_to_analyze <- split_levels_to_analyze[task_order]
   selected_rows <- do.call(rbind, lapply(tasks, `[[`, "selected"))
   rownames(selected_rows) <- NULL
 
@@ -436,14 +436,14 @@ load_shapture_global_results <- function(
   score_matrix <- matrix(
     NA_real_,
     nrow = length(features),
-    ncol = length(split_levels),
-    dimnames = list(features, split_levels)
+    ncol = length(split_levels_to_analyze),
+    dimnames = list(features, split_levels_to_analyze)
   )
   direction_matrix <- matrix(
     NA_character_,
     nrow = length(features),
-    ncol = length(split_levels),
-    dimnames = list(features, split_levels)
+    ncol = length(split_levels_to_analyze),
+    dimnames = list(features, split_levels_to_analyze)
   )
 
   for (i in seq_len(nrow(selected_rows))) {
@@ -455,17 +455,17 @@ load_shapture_global_results <- function(
 
   directional_jaccard <- matrix(
     0,
-    nrow = length(split_levels),
-    ncol = length(split_levels),
-    dimnames = list(split_levels, split_levels)
+    nrow = length(split_levels_to_analyze),
+    ncol = length(split_levels_to_analyze),
+    dimnames = list(split_levels_to_analyze, split_levels_to_analyze)
   )
 
-  selected_by_level <- setNames(lapply(split_levels, function(split_level) {
+  selected_by_level <- setNames(lapply(split_levels_to_analyze, function(split_level) {
     selected_rows[selected_rows$split_level == split_level, , drop = FALSE]
-  }), split_levels)
+  }), split_levels_to_analyze)
 
-  for (i in seq_along(split_levels)) {
-    for (j in seq_along(split_levels)) {
+  for (i in seq_along(split_levels_to_analyze)) {
+    for (j in seq_along(split_levels_to_analyze)) {
       if (i == j) {
         directional_jaccard[i, j] <- 1
         next
@@ -497,7 +497,7 @@ load_shapture_global_results <- function(
     comparison_label = comparison_label,
     direction_labels = direction_labels,
     top_feature_show = top_feature_show,
-    split_levels = split_levels,
+    split_levels_to_analyze = split_levels_to_analyze,
     selected_rows = selected_rows,
     feature_summary = feature_summary,
     score_matrix = score_matrix,

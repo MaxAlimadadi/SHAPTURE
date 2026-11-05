@@ -7,8 +7,8 @@
 build_shapture_tasks(
   dataset_all,
   comparison_mode,
-  split_by_col,
-  split_levels,
+  split_level_column,
+  split_levels_to_analyze,
   one_vs_others_col,
   one_vs_others_levels,
   what_0,
@@ -22,9 +22,9 @@ build_shapture_tasks(
 \item{comparison_mode}{One of \code{"condition_vs_condition"} or
 \code{"one_vs_others"}.}
 
-\item{split_by_col}{Optional subset column.}
+\item{split_level_column}{Optional subset column.}
 
-\item{split_levels}{Optional selected split levels.}
+\item{split_levels_to_analyze}{Optional selected split levels.}
 
 \item{one_vs_others_col}{Optional one-vs-others grouping column.}
 

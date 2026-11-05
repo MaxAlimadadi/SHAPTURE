@@ -19,7 +19,7 @@ test_that("task seed plans are stable and independent of iteration count", {
     SHAPTURE:::build_shapture_task_seed_plan(
       analysis_seed = 123L,
       comparison_mode = "condition_vs_condition",
-      split_by_col = "cell_type",
+      split_level_column = "cell_type",
       temp_split = "subset_A",
       task_what_0 = "control",
       task_what_1 = "case",

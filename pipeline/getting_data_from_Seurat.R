@@ -21,7 +21,7 @@ my_obj <- readRDS(seurat_path)
 #####
 condition_col <- "condition"      # binary biological condition column in meta.data
 sample_col <- "sample_id"         # patient / donor / sample identifier column
-split_by_col <- "subset_label"    # use NULL for one global analysis
+split_level_column <- "subset_label"    # use NULL for one global analysis
 
 # Put the reference/left condition first and the target/right condition second.
 condition_levels <- c("condition_0", "condition_1")
@@ -52,7 +52,7 @@ if (length(what_genes) == 0) {
 data_prep_config <- list(
   condition_col = condition_col,
   sample_col = sample_col,
-  split_by_col = split_by_col,
+  split_level_column = split_level_column,
   assay = assay,
   layer = layer,
   genes = what_genes,
@@ -68,7 +68,7 @@ dataset_all <- dataset_res$dataset_all
 what_genes <- dataset_res$what_genes
 # Always use the prepared-data split name returned by the adapter. It is the
 # original name unless that name would collide with an internal metadata field.
-analysis_split_by_col <- dataset_res$split_by_col
+analysis_split_level_column <- dataset_res$split_level_column
 
 #####
 # 5. Define analysis settings
@@ -80,13 +80,11 @@ analysis_split_by_col <- dataset_res$split_by_col
 
 shapture_config_condition_vs_condition <- list(
   # subset column; use NULL for one global condition-vs-condition run
-  split_by_col = analysis_split_by_col,
+  split_level_column = analysis_split_level_column,
   
-  # optional split_by_col levels to keep before analysis; NULL keeps all levels
-  subset_levels = NULL,
-  
-  # optional task levels to analyze; NULL uses all levels after subset_levels
-  split_levels = NULL,
+  # optional task levels to analyze; NULL uses all levels present in the input
+  # filter the input data first if you want to remove levels entirely
+  split_levels_to_analyze = NULL,
   
   comparison_mode = "condition_vs_condition",
   what_0 = data_prep_config$condition_levels[1],
@@ -172,14 +170,11 @@ shapture_config_condition_vs_condition <- list(
 
 shapture_config_one_vs_others <- list(
   # target-defining column for one-vs-others mode
-  split_by_col = analysis_split_by_col,
+  split_level_column = analysis_split_level_column,
   
-  # optional split_by_col levels to keep before analysis; NULL keeps all levels.
-  # In one_vs_others, this defines the universe used to build the pooled "others" class.
-  subset_levels = NULL,
-  
-  # optional target levels to analyze; NULL uses all levels after subset_levels.
-  split_levels = NULL,
+  # optional targets to analyze; NULL uses all levels present in the input
+  # every other level in the input remains available to the pooled "others" class
+  split_levels_to_analyze = NULL,
   
   comparison_mode = "one_vs_others",
   iteration_no = 50,
@@ -263,8 +258,8 @@ shapture_config_one_vs_others <- list(
 # Pick the active config here.
 shapture_config <- shapture_config_condition_vs_condition
 
-if (!is.null(shapture_config$split_by_col)) {
-  dataset_all[[shapture_config$split_by_col]] <- factor(dataset_all[[shapture_config$split_by_col]])
+if (!is.null(shapture_config$split_level_column)) {
+  dataset_all[[shapture_config$split_level_column]] <- factor(dataset_all[[shapture_config$split_level_column]])
 }
 
 rm(my_obj)

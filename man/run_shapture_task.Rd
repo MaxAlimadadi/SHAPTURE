@@ -14,7 +14,7 @@ run_shapture_task(
   main_dir,
   project_name,
   comparison_mode,
-  effective_split_by_col,
+  effective_split_level_column,
   metacell_split_col,
   one_vs_others_col,
   metacell_summary,
@@ -66,7 +66,7 @@ run_shapture_task(
 
 \item{comparison_mode}{Comparison mode.}
 
-\item{effective_split_by_col}{Effective split column for condition-vs-condition mode.}
+\item{effective_split_level_column}{Effective split column for condition-vs-condition mode.}
 
 \item{metacell_split_col}{Column used during metacell construction.}
 

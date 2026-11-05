@@ -8,7 +8,7 @@ build_dataset_from_sce(
   sce,
   condition_col,
   sample_col,
-  split_by_col = NULL,
+  split_level_column = NULL,
   cluster_resolution = NULL,
   feature_cols = NULL
 )
@@ -20,9 +20,9 @@ build_dataset_from_sce(
 
 \item{sample_col}{Column in \code{colData(sce)} containing sample identifiers.}
 
-\item{split_by_col}{Optional split column. If \code{NULL}, no subset column is
+\item{split_level_column}{Optional split column. If \code{NULL}, no subset column is
 added. If \code{cluster_resolution} is supplied, the resulting column will use
-the name stored in \code{split_by_col}.}
+the name stored in \code{split_level_column}.}
 
 \item{cluster_resolution}{Optional CATALYST clustering resolution key used
 with \code{cluster_ids()}.}
@@ -32,11 +32,11 @@ markers are used.}
 }
 \value{
 A list with \code{dataset_all}, \code{what_genes}, the prepared-data
-\code{split_by_col} name, and a \code{column_mapping} table. Source metadata names
+\code{split_level_column} name, and a \code{column_mapping} table. Source metadata names
 may be arbitrary. If the requested split name conflicts with SHAPTURE's
 prepared-data columns (\code{condition} or \code{sample_id}) or a feature name, the
 split is stored under a deterministic internal alias returned in
-\code{split_by_col}.
+\code{split_level_column}.
 }
 \description{
 Build SHAPTURE input from a SingleCellExperiment / CATALYST object

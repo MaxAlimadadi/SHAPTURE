@@ -43,9 +43,8 @@ load_shapture_runtime <- function() {
 #' @keywords internal
 default_shapture_script_config <- function(what_genes) {
   list(
-    split_by_col = NULL,
-    subset_levels = NULL,
-    split_levels = NULL,
+    split_level_column = NULL,
+    split_levels_to_analyze = NULL,
     comparison_mode = "condition_vs_condition",
     one_vs_others_col = NULL,
     one_vs_others_levels = NULL,
@@ -298,6 +297,11 @@ resolve_shapture_script_config <- function(
         is.null(user_config$one_vs_others_negative_label)) {
       user_config$one_vs_others_negative_label <- user_config$one_vs_rest_negative_label
     }
+    allowed_legacy_names <- c("one_vs_rest_col", "one_vs_rest_levels", "one_vs_rest_negative_label")
+    unknown_names <- setdiff(names(user_config), c(names(config), allowed_legacy_names))
+    if (length(unknown_names) > 0L) {
+      stop("Unknown shapture_config parameters: ", paste(unknown_names, collapse = ", "))
+    }
     recognized_names <- intersect(names(user_config), names(config))
     config[recognized_names] <- user_config[recognized_names]
   }
@@ -354,8 +358,8 @@ resolve_shapture_script_config <- function(
   # Object adapters record a mapping only when a source split name collides
   # with SHAPTURE's prepared condition/sample columns. This also keeps older
   # copied scripts that pass the source name into shapture_config working.
-  config$split_by_col <- resolve_mapped_prepared_column(
-    column_name = config$split_by_col,
+  config$split_level_column <- resolve_mapped_prepared_column(
+    column_name = config$split_level_column,
     dataset_all = dataset_all
   )
   config$one_vs_others_col <- resolve_mapped_prepared_column(
@@ -365,36 +369,18 @@ resolve_shapture_script_config <- function(
   
   config$comparison_mode <- normalize_comparison_mode(config$comparison_mode)
   
-  if (!is.null(config$subset_levels) && is.null(config$split_by_col)) {
-    stop("subset_levels requires split_by_col.")
-  }
-  
-  if (!is.null(config$subset_levels)) {
-    if (!config$split_by_col %in% colnames(dataset_all)) {
-      stop("split_by_col is not present in dataset_all: ", config$split_by_col)
-    }
-    dataset_all <- dataset_all[
-      as.character(dataset_all[[config$split_by_col]]) %in% as.character(config$subset_levels),
-      ,
-      drop = FALSE
-    ]
-    if (nrow(dataset_all) == 0) {
-      stop("No rows remain after applying subset_levels.")
-    }
-  }
-  
-  if (identical(config$comparison_mode, "condition_vs_condition") && !is.null(config$split_by_col)) {
-    available_split_levels <- as.character(config$split_levels %||% unique(dataset_all[[config$split_by_col]]))
+  if (identical(config$comparison_mode, "condition_vs_condition") && !is.null(config$split_level_column)) {
+    available_split_levels <- as.character(config$split_levels_to_analyze %||% unique(dataset_all[[config$split_level_column]]))
     if (nzchar(temp_split_override)) {
-      config$split_levels <- intersect(available_split_levels, temp_split_override)
+      config$split_levels_to_analyze <- intersect(available_split_levels, temp_split_override)
     } else if (nzchar(temp_cluster_override)) {
-      config$split_levels <- intersect(available_split_levels, temp_cluster_override)
+      config$split_levels_to_analyze <- intersect(available_split_levels, temp_cluster_override)
     }
   }
 
   if (identical(config$comparison_mode, "one_vs_others")) {
-    config$one_vs_others_col <- config$one_vs_others_col %||% config$split_by_col
-    config$one_vs_others_levels <- config$one_vs_others_levels %||% config$split_levels
+    config$one_vs_others_col <- config$one_vs_others_col %||% config$split_level_column
+    config$one_vs_others_levels <- config$one_vs_others_levels %||% config$split_levels_to_analyze
   }
   
   if (identical(config$comparison_mode, "one_vs_others") &&
@@ -886,34 +872,34 @@ build_condition_shap_aggregates_from_chunks <- function(
 #' Prepare split metadata for SHAPTURE analyses
 #'
 #' @param dataset_all Input data frame.
-#' @param split_by_col Optional subset column. In `one_vs_others` mode, this is
+#' @param split_level_column Optional subset column. In `one_vs_others` mode, this is
 #'   also the column whose levels define the positive class.
 #'
 #' @return List with a possibly augmented dataset and the effective split column.
 #' @keywords internal
-prepare_split_context <- function(dataset_all, split_by_col) {
+prepare_split_context <- function(dataset_all, split_level_column) {
   internal_all_data_col <- ".shapture_all_data"
   
-  if (is.null(split_by_col)) {
+  if (is.null(split_level_column)) {
     dataset_all[[internal_all_data_col]] <- "all_data"
     return(list(
       dataset = dataset_all,
-      effective_split_by_col = internal_all_data_col,
+      effective_split_level_column = internal_all_data_col,
       effective_split_levels = "all_data"
     ))
   }
   
-  if (!split_by_col %in% colnames(dataset_all)) {
-    stop("split_by_col is not present in dataset_all: ", split_by_col)
+  if (!split_level_column %in% colnames(dataset_all)) {
+    stop("split_level_column is not present in dataset_all: ", split_level_column)
   }
   
-  split_levels <- as.character(unique(dataset_all[[split_by_col]]))
-  split_levels <- split_levels[!is.na(split_levels) & nzchar(split_levels)]
+  split_levels_to_analyze <- as.character(unique(dataset_all[[split_level_column]]))
+  split_levels_to_analyze <- split_levels_to_analyze[!is.na(split_levels_to_analyze) & nzchar(split_levels_to_analyze)]
   
   list(
     dataset = dataset_all,
-    effective_split_by_col = split_by_col,
-    effective_split_levels = split_levels
+    effective_split_level_column = split_level_column,
+    effective_split_levels = split_levels_to_analyze
   )
 }
 
@@ -923,8 +909,8 @@ prepare_split_context <- function(dataset_all, split_by_col) {
 #' @param dataset_all Input data frame.
 #' @param comparison_mode One of `"condition_vs_condition"` or
 #'   `"one_vs_others"`.
-#' @param split_by_col Optional subset column.
-#' @param split_levels Optional selected split levels.
+#' @param split_level_column Optional subset column.
+#' @param split_levels_to_analyze Optional selected split levels.
 #' @param one_vs_others_col Optional one-vs-others grouping column.
 #' @param one_vs_others_levels Optional target levels for one-vs-others.
 #' @param what_0 Negative class label.
@@ -938,8 +924,8 @@ prepare_split_context <- function(dataset_all, split_by_col) {
 build_shapture_tasks <- function(
     dataset_all,
     comparison_mode,
-    split_by_col,
-    split_levels,
+    split_level_column,
+    split_levels_to_analyze,
     one_vs_others_col,
     one_vs_others_levels,
     what_0,
@@ -950,11 +936,11 @@ build_shapture_tasks <- function(
   comparison_mode <- match.arg(comparison_mode, c("condition_vs_condition", "one_vs_others"))
   
   if (comparison_mode == "condition_vs_condition") {
-    split_context <- prepare_split_context(dataset_all = dataset_all, split_by_col = split_by_col)
+    split_context <- prepare_split_context(dataset_all = dataset_all, split_level_column = split_level_column)
     effective_split_levels <- split_context$effective_split_levels
     
-    if (!is.null(split_levels)) {
-      effective_split_levels <- intersect(as.character(effective_split_levels), as.character(split_levels))
+    if (!is.null(split_levels_to_analyze)) {
+      effective_split_levels <- intersect(as.character(effective_split_levels), as.character(split_levels_to_analyze))
     }
     
     if (length(effective_split_levels) == 0) {
@@ -970,18 +956,18 @@ build_shapture_tasks <- function(
     
     return(list(
       dataset = split_context$dataset,
-      effective_split_by_col = split_context$effective_split_by_col,
-      task_metacell_split_col = split_context$effective_split_by_col,
+      effective_split_level_column = split_context$effective_split_level_column,
+      task_metacell_split_col = split_context$effective_split_level_column,
       task_table = task_table
     ))
   }
   
-  one_vs_others_col <- one_vs_others_col %||% split_by_col
-  one_vs_others_levels <- one_vs_others_levels %||% split_levels
+  one_vs_others_col <- one_vs_others_col %||% split_level_column
+  one_vs_others_levels <- one_vs_others_levels %||% split_levels_to_analyze
 
   if (is.null(one_vs_others_col) || !one_vs_others_col %in% colnames(dataset_all)) {
     stop(
-      "For one_vs_others mode, split_by_col must be set to the column that defines the target groups."
+      "For one_vs_others mode, split_level_column must be set to the column that defines the target groups."
     )
   }
   
@@ -1005,7 +991,7 @@ build_shapture_tasks <- function(
   
   list(
     dataset = dataset_all,
-    effective_split_by_col = NULL,
+    effective_split_level_column = NULL,
     task_metacell_split_col = one_vs_others_col,
     task_table = task_table
   )
@@ -1017,7 +1003,7 @@ build_shapture_tasks <- function(
 #' @param dataset Analysis data set.
 #' @param comparison_mode Analysis comparison mode.
 #' @param temp_split Current split/target level.
-#' @param split_by_col Effective split column for condition-vs-condition mode.
+#' @param split_level_column Effective split column for condition-vs-condition mode.
 #' @param one_vs_others_col Column used in one-vs-others mode.
 #' @param task_what_0 Negative class label for this task.
 #' @param task_what_1 Positive class label for this task.
@@ -1028,7 +1014,7 @@ materialize_task_dataset <- function(
     dataset,
     comparison_mode,
     temp_split,
-    split_by_col,
+    split_level_column,
     one_vs_others_col,
     task_what_0,
     task_what_1
@@ -1037,10 +1023,10 @@ materialize_task_dataset <- function(
   comparison_mode <- match.arg(comparison_mode, c("condition_vs_condition", "one_vs_others"))
   
   if (comparison_mode == "condition_vs_condition") {
-    if (is.null(split_by_col) || identical(split_by_col, ".shapture_all_data")) {
+    if (is.null(split_level_column) || identical(split_level_column, ".shapture_all_data")) {
       dataset_task <- dataset
     } else {
-      dataset_task <- dataset[dataset[[split_by_col]] == temp_split, , drop = FALSE]
+      dataset_task <- dataset[dataset[[split_level_column]] == temp_split, , drop = FALSE]
     }
     dataset_task$condition <- factor(dataset_task$condition, levels = c(task_what_0, task_what_1))
     return(dataset_task)
@@ -1181,7 +1167,7 @@ filter_features_by_min_pct <- function(
 #' @param main_dir Output root directory.
 #' @param project_name Project prefix.
 #' @param comparison_mode Comparison mode.
-#' @param effective_split_by_col Effective split column for condition-vs-condition mode.
+#' @param effective_split_level_column Effective split column for condition-vs-condition mode.
 #' @param metacell_split_col Column used during metacell construction.
 #' @param one_vs_others_col Column defining the positive class in
 #'   one-vs-others mode.
@@ -1248,7 +1234,7 @@ run_shapture_task <- function(
     main_dir,
     project_name,
     comparison_mode,
-    effective_split_by_col,
+    effective_split_level_column,
     metacell_split_col,
     one_vs_others_col,
     metacell_summary,
@@ -1289,7 +1275,7 @@ run_shapture_task <- function(
   seed_plan <- build_shapture_task_seed_plan(
     analysis_seed = analysis_seed,
     comparison_mode = comparison_mode,
-    split_by_col = effective_split_by_col,
+    split_level_column = effective_split_level_column,
     temp_split = temp_split,
     task_what_0 = task_what_0,
     task_what_1 = task_what_1,
@@ -1304,7 +1290,7 @@ run_shapture_task <- function(
     dataset = dataset_all_analysis,
     comparison_mode = comparison_mode,
     temp_split = temp_split,
-    split_by_col = effective_split_by_col,
+    split_level_column = effective_split_level_column,
     one_vs_others_col = one_vs_others_col,
     task_what_0 = task_what_0,
     task_what_1 = task_what_1
@@ -1314,7 +1300,7 @@ run_shapture_task <- function(
     dataset = dataset_all,
     comparison_mode = comparison_mode,
     temp_split = temp_split,
-    split_by_col = effective_split_by_col,
+    split_level_column = effective_split_level_column,
     one_vs_others_col = one_vs_others_col,
     task_what_0 = task_what_0,
     task_what_1 = task_what_1
@@ -1370,7 +1356,7 @@ run_shapture_task <- function(
       comparison_mode = comparison_mode,
       sample_col = "sample_id",
       condition_col = "condition",
-      split_by_col = one_vs_others_col,
+      split_level_column = one_vs_others_col,
       positive_label = task_what_1,
       balance_col = "balance_group"
     )
@@ -2408,7 +2394,7 @@ run_shapture_task <- function(
   stats_interpretation <- data.frame(
     split_level = temp_split,
     comparison_mode = comparison_mode,
-    split_by_col = ifelse(is.null(effective_split_by_col), NA_character_, effective_split_by_col),
+    split_level_column = ifelse(is.null(effective_split_level_column), NA_character_, effective_split_level_column),
     one_vs_others_col = ifelse(is.null(one_vs_others_col), NA_character_, one_vs_others_col),
     n_patients_condition0 = patient_count_condition0,
     n_patients_condition1 = patient_count_condition1,
@@ -2517,7 +2503,7 @@ run_shapture_task <- function(
   run_summary <- data.frame(
     split_level = temp_split,
     comparison_mode = comparison_mode,
-    split_by_col = ifelse(is.null(effective_split_by_col), NA_character_, effective_split_by_col),
+    split_level_column = ifelse(is.null(effective_split_level_column), NA_character_, effective_split_level_column),
     condition_0 = task_what_0,
     condition_1 = task_what_1,
     analysis_seed = analysis_seed,
@@ -2714,7 +2700,7 @@ run_shapture_task <- function(
   visualization_context <- list(
     temp_split = temp_split,
     comparison_mode = comparison_mode,
-    split_by_col = ifelse(is.null(effective_split_by_col), NA_character_, effective_split_by_col),
+    split_level_column = ifelse(is.null(effective_split_level_column), NA_character_, effective_split_level_column),
     task_what_0 = task_what_0,
     task_what_1 = task_what_1,
     top_feature_label_actual = top_feature_label_actual,
@@ -2774,14 +2760,13 @@ run_shapture_task <- function(
 #'   split or one-vs-others columns, and numeric features.
 #' @param what_genes Feature list to analyze.
 #' @param main_dir Output directory.
-#' @param split_by_col Optional column used for subset-specific condition
+#' @param split_level_column Optional column used for subset-specific condition
 #'   comparison. Use `NULL` for no split in `condition_vs_condition` mode. In
 #'   `one_vs_others` mode, this should be the column whose levels are compared
 #'   one-vs-others.
-#' @param subset_levels Optional `split_by_col` levels to keep in the input data
-#'   before task construction.
-#' @param split_levels Optional task or target levels to analyze after
-#'   `subset_levels` filtering.
+#' @param split_levels_to_analyze Optional task or target levels to analyze.
+#'   `NULL` analyzes all available levels. This selects tasks, not input rows;
+#'   filter `dataset_all` before calling the pipeline to restrict the data.
 #' @param comparison_mode One of `"condition_vs_condition"` or
 #'   `"one_vs_others"`.
 #' @param one_vs_others_col Column used for one-vs-others comparisons.
@@ -2854,9 +2839,8 @@ run_shapture_pipeline <- function(
     dataset_all,
     what_genes,
     main_dir,
-    split_by_col = NULL,
-    subset_levels = NULL,
-    split_levels = NULL,
+    split_level_column = NULL,
+    split_levels_to_analyze = NULL,
     comparison_mode = c("condition_vs_condition", "one_vs_others"),
     one_vs_others_col = NULL,
     one_vs_others_levels = NULL,
@@ -2908,7 +2892,13 @@ run_shapture_pipeline <- function(
 ) {
   legacy_args <- list(...)
   legacy_names <- c("one_vs_rest_col", "one_vs_rest_levels", "one_vs_rest_negative_label")
-  unknown_args <- setdiff(names(legacy_args), legacy_names)
+  # Require exact configuration names rather than R's partial argument matching.
+  supplied_names <- names(as.list(sys.call())[-1L])
+  supplied_names <- supplied_names[!is.na(supplied_names) & nzchar(supplied_names)]
+  unknown_args <- setdiff(
+    c(supplied_names, names(legacy_args)),
+    c(names(formals(sys.function())), legacy_names)
+  )
   if (length(unknown_args) > 0) {
     stop("Unused arguments: ", paste(unknown_args, collapse = ", "))
   }
@@ -2923,8 +2913,8 @@ run_shapture_pipeline <- function(
     one_vs_others_negative_label <- legacy_args$one_vs_rest_negative_label
   }
 
-  split_by_col <- resolve_mapped_prepared_column(
-    column_name = split_by_col,
+  split_level_column <- resolve_mapped_prepared_column(
+    column_name = split_level_column,
     dataset_all = dataset_all
   )
   one_vs_others_col <- resolve_mapped_prepared_column(
@@ -2992,25 +2982,8 @@ run_shapture_pipeline <- function(
   load_shapture_runtime()
 
   if (comparison_mode == "one_vs_others") {
-    one_vs_others_col <- one_vs_others_col %||% split_by_col
-    one_vs_others_levels <- one_vs_others_levels %||% split_levels
-  }
-  
-  if (!is.null(subset_levels)) {
-    if (is.null(split_by_col)) {
-      stop("subset_levels requires split_by_col.")
-    }
-    if (!split_by_col %in% colnames(dataset_all)) {
-      stop("split_by_col is not present in dataset_all: ", split_by_col)
-    }
-    dataset_all <- dataset_all[
-      as.character(dataset_all[[split_by_col]]) %in% as.character(subset_levels),
-      ,
-      drop = FALSE
-    ]
-    if (nrow(dataset_all) == 0) {
-      stop("No rows remain after applying subset_levels.")
-    }
+    one_vs_others_col <- one_vs_others_col %||% split_level_column
+    one_vs_others_levels <- one_vs_others_levels %||% split_levels_to_analyze
   }
   
   if (!all(c("condition", "sample_id") %in% colnames(dataset_all))) {
@@ -3026,10 +2999,9 @@ run_shapture_pipeline <- function(
   }
 
   resolved_config_for_docs <- list(
-    split_by_col = split_by_col,
-    subset_levels = subset_levels,
-    split_levels = split_levels,
-    n_rows_after_subset_levels = nrow(dataset_all),
+    split_level_column = split_level_column,
+    split_levels_to_analyze = split_levels_to_analyze,
+    n_input_rows = nrow(dataset_all),
     comparison_mode = comparison_mode,
     one_vs_others_col = one_vs_others_col,
     one_vs_others_levels = one_vs_others_levels,
@@ -3082,8 +3054,8 @@ run_shapture_pipeline <- function(
   task_context <- build_shapture_tasks(
     dataset_all = dataset_all,
     comparison_mode = comparison_mode,
-    split_by_col = split_by_col,
-    split_levels = split_levels,
+    split_level_column = split_level_column,
+    split_levels_to_analyze = split_levels_to_analyze,
     one_vs_others_col = one_vs_others_col,
     one_vs_others_levels = one_vs_others_levels,
     what_0 = what_0,
@@ -3106,8 +3078,9 @@ run_shapture_pipeline <- function(
       analysis_seed,
       "metacell_construction",
       comparison_mode,
-      split_by_col,
-      sort(as.character(subset_levels %||% "<ALL>"))
+      split_level_column,
+      # Preserve the seed format for explicitly prefiltered input data.
+      "<ALL>"
     )
   } else {
     NA_integer_
@@ -3117,7 +3090,7 @@ run_shapture_pipeline <- function(
       dataset = dataset_all_metacell,
       feature_cols = what_genes,
       sample_col = "sample_id",
-      split_by_col = metacell_split_col,
+      split_level_column = metacell_split_col,
       condition_col = "condition",
       use_metacells = TRUE,
       min_cells_to_build = metacell_min_cells_to_build,
@@ -3142,9 +3115,9 @@ run_shapture_pipeline <- function(
   }
   
   setwd(main_dir)
-  if (comparison_mode == "condition_vs_condition" && !is.null(split_by_col)) {
+  if (comparison_mode == "condition_vs_condition" && !is.null(split_level_column)) {
     write.csv(
-      t(table(dataset_all_analysis$condition, dataset_all_analysis[[split_by_col]])),
+      t(table(dataset_all_analysis$condition, dataset_all_analysis[[split_level_column]])),
       "cell.number.split.condition_before.loop.csv"
     )
   } else if (comparison_mode == "condition_vs_condition") {
@@ -3175,7 +3148,7 @@ run_shapture_pipeline <- function(
       main_dir = main_dir,
       project_name = project_name,
       comparison_mode = comparison_mode,
-      effective_split_by_col = task_context$effective_split_by_col,
+      effective_split_level_column = task_context$effective_split_level_column,
       metacell_split_col = metacell_split_col,
       one_vs_others_col = one_vs_others_col,
       metacell_summary = metacell_summary,

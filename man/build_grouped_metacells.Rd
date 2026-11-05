@@ -8,7 +8,7 @@ build_grouped_metacells(
   dataset,
   feature_cols,
   sample_col = "sample_id",
-  split_by_col,
+  split_level_column,
   condition_col = "condition",
   use_metacells = TRUE,
   min_cells_to_build = 40,
@@ -33,7 +33,7 @@ feature columns.}
 
 \item{sample_col}{Sample identifier column.}
 
-\item{split_by_col}{Column used to keep metacells within an analysis subset.
+\item{split_level_column}{Column used to keep metacells within an analysis subset.
 Metacells are built within sample, split, and condition to avoid mixing
 biological groups before modeling.}
 

@@ -8,7 +8,7 @@ build_dataset_from_seurat(
   seurat_obj,
   condition_col,
   sample_col,
-  split_by_col = NULL,
+  split_level_column = NULL,
   assay = "RNA",
   layer = "data",
   genes = NULL,
@@ -22,7 +22,7 @@ build_dataset_from_seurat(
 
 \item{sample_col}{Metadata column containing sample identifiers.}
 
-\item{split_by_col}{Optional metadata column to carry for subset-specific or
+\item{split_level_column}{Optional metadata column to carry for subset-specific or
 one-vs-others analyses.}
 
 \item{assay}{Assay to read.}
@@ -36,11 +36,11 @@ assay/layer are used.}
 }
 \value{
 A list with \code{dataset_all}, \code{what_genes}, the prepared-data
-\code{split_by_col} name, and a \code{column_mapping} table. Source metadata names
+\code{split_level_column} name, and a \code{column_mapping} table. Source metadata names
 may be arbitrary. If the requested split name conflicts with SHAPTURE's
 prepared-data columns (\code{condition} or \code{sample_id}) or a feature name, the
 split is stored under a deterministic internal alias returned in
-\code{split_by_col}.
+\code{split_level_column}.
 }
 \description{
 Build SHAPTURE input from a Seurat object

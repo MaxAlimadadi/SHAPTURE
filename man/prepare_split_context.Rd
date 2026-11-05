@@ -4,12 +4,12 @@
 \alias{prepare_split_context}
 \title{Prepare split metadata for SHAPTURE analyses}
 \usage{
-prepare_split_context(dataset_all, split_by_col)
+prepare_split_context(dataset_all, split_level_column)
 }
 \arguments{
 \item{dataset_all}{Input data frame.}
 
-\item{split_by_col}{Optional subset column. In \code{one_vs_others} mode, this is
+\item{split_level_column}{Optional subset column. In \code{one_vs_others} mode, this is
 also the column whose levels define the positive class.}
 }
 \value{

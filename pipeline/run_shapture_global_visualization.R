@@ -43,7 +43,7 @@ global_results <- load_shapture_global_results(
 )
 
 message(
-  "Loaded ", length(global_results$split_levels), " split levels and ",
+  "Loaded ", length(global_results$split_levels_to_analyze), " split levels and ",
   nrow(global_results$score_matrix), " unique selected features."
 )
 

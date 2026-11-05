@@ -9,7 +9,7 @@
   dataset,
   feature_cols,
   sample_col,
-  split_by_col,
+  split_level_column,
   condition_col,
   min_cells_to_build,
   min_cells_per_metacell,
@@ -30,7 +30,7 @@
 
 \item{sample_col}{Sample identifier column.}
 
-\item{split_by_col}{Column defining the analysis subset used for within-group
+\item{split_level_column}{Column defining the analysis subset used for within-group
 metacell construction. Metacells are also built within condition.}
 
 \item{condition_col}{Condition column.}

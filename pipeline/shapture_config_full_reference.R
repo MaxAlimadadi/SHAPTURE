@@ -17,25 +17,22 @@ shapture_config_full <- list(
   #
   # metadata column used to split the analysis; use NULL for one global run
   # in one_vs_others mode, this should be the target-defining column
-  split_by_col = NULL,
+  split_level_column = NULL,
   
-  # values of split_by_col to keep before analysis; NULL keeps all levels
-  # in one_vs_others mode, this defines the universe used to build "others"
-  subset_levels = NULL,
-  
-  # values of split_by_col to analyze; NULL means use all levels after subset_levels
+  # filter the input data before analysis to restrict the retained levels
+  # values of split_level_column to analyze; NULL means all available levels
   # in one_vs_others mode, these are the target levels that each get a folder
-  split_levels = NULL,
+  split_levels_to_analyze = NULL,
   
   # "condition_vs_condition" or "one_vs_others"
   comparison_mode = "condition_vs_condition",
   
   # optional explicit target-defining column for one-vs-others mode; usually
-  # leave NULL and let the pipeline use split_by_col automatically
+  # leave NULL and let the pipeline use split_level_column automatically
   one_vs_others_col = NULL,
   
   # optional explicit target levels for one-vs-others mode; usually leave NULL
-  # and let the pipeline use split_levels automatically
+  # and let the pipeline use split_levels_to_analyze automatically
   one_vs_others_levels = NULL,
   
   # negative-class label used in one-vs-others mode
@@ -133,7 +130,7 @@ shapture_config_full <- list(
   #
   # "hard_median_downsample", "weighted_sampling", or "model_weights"
   # in one_vs_others mode, the target level is balanced by sample_id and the
-  # pooled non-target class is balanced by sample_id + split_by_col
+  # pooled non-target class is balanced by sample_id + split_level_column
   patient_balance_method = "model_weights",
 
   # "shared_patients" or "unseen_patients"

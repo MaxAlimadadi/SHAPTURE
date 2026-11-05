@@ -4,10 +4,10 @@
 \alias{resolve_prepared_split_column}
 \title{Resolve a collision-safe split column for prepared data}
 \usage{
-resolve_prepared_split_column(split_by_col, feature_names = character())
+resolve_prepared_split_column(split_level_column, feature_names = character())
 }
 \arguments{
-\item{split_by_col}{Source split column name or \code{NULL}.}
+\item{split_level_column}{Source split column name or \code{NULL}.}
 
 \item{feature_names}{Feature names that will be added to the prepared table.}
 }

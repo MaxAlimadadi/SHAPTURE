@@ -1,3 +1,14 @@
+# SHAPTURE 0.0.0.9019
+
+- Analysis-group configuration now uses `split_level_column` and
+  `split_levels_to_analyze` throughout the package, data adapters, templates,
+  and saved configuration metadata. Previous names are not accepted as aliases.
+- Input-level filtering is now explicit: filter the source object or prepared
+  table before calling SHAPTURE. Selecting analysis levels does not remove
+  background levels from one-vs-others comparisons.
+- Modeling, scoring, and plotting calculations are unchanged. Metacell seed
+  formatting is preserved for the same explicitly prefiltered input.
+
 # SHAPTURE 0.0.0.9018
 
 - Condition-level waterfall plots now label every displayed feature, independent
@@ -13,7 +24,7 @@
 - Seurat and SingleCellExperiment adapters now accept source split columns
   whose names overlap SHAPTURE's prepared-data `condition` or `sample_id`
   fields. Conflicting split names receive a deterministic internal alias,
-  returned as `dataset_res$split_by_col` with a source-to-prepared
+  returned as `dataset_res$split_level_column` with a source-to-prepared
   `column_mapping` table.
 - The editable data-preparation templates now pass the returned prepared split
   name into analysis configuration. Nonconflicting inputs retain their prior

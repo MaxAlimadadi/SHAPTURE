@@ -8,9 +8,8 @@ run_shapture_pipeline(
   dataset_all,
   what_genes,
   main_dir,
-  split_by_col = NULL,
-  subset_levels = NULL,
-  split_levels = NULL,
+  split_level_column = NULL,
+  split_levels_to_analyze = NULL,
   comparison_mode = c("condition_vs_condition", "one_vs_others"),
   one_vs_others_col = NULL,
   one_vs_others_levels = NULL,
@@ -65,16 +64,14 @@ split or one-vs-others columns, and numeric features.}
 
 \item{main_dir}{Output directory.}
 
-\item{split_by_col}{Optional column used for subset-specific condition
+\item{split_level_column}{Optional column used for subset-specific condition
 comparison. Use \code{NULL} for no split in \code{condition_vs_condition} mode. In
 \code{one_vs_others} mode, this should be the column whose levels are compared
 one-vs-others.}
 
-\item{subset_levels}{Optional \code{split_by_col} levels to keep in the input data
-before task construction.}
-
-\item{split_levels}{Optional task or target levels to analyze after
-\code{subset_levels} filtering.}
+\item{split_levels_to_analyze}{Optional task or target levels to analyze.
+\code{NULL} analyzes all available levels. This selects tasks, not input rows;
+filter \code{dataset_all} before calling the pipeline to restrict the data.}
 
 \item{comparison_mode}{One of \code{"condition_vs_condition"} or
 \code{"one_vs_others"}.}

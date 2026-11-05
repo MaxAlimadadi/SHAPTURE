@@ -7,8 +7,8 @@
 build_prepared_column_mapping(
   condition_col,
   sample_col,
-  split_by_col = NULL,
-  prepared_split_by_col = NULL
+  split_level_column = NULL,
+  prepared_split_level_column = NULL
 )
 }
 \arguments{
@@ -16,9 +16,9 @@ build_prepared_column_mapping(
 
 \item{sample_col}{Source sample column.}
 
-\item{split_by_col}{Optional source split column.}
+\item{split_level_column}{Optional source split column.}
 
-\item{prepared_split_by_col}{Optional prepared-data split column.}
+\item{prepared_split_level_column}{Optional prepared-data split column.}
 }
 \value{
 A data frame describing the adapter's metadata-column mapping.

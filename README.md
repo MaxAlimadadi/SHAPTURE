@@ -120,13 +120,13 @@ minimum, the table should contain:
 
 - `condition`: the two biological groups to compare
 - `sample_id`: patient, donor, or sample identifier
-- optional `split_by_col`: subset, cluster, cell type, sex, batch, or another
+- optional `split_level_column`: subset, cluster, cell type, sex, batch, or another
   stratifying label
 - feature columns: genes, proteins, markers, or other numeric predictors
 
 Example structure:
 
-| condition | sample_id | split_by_col | GeneA | GeneB | GeneC |
+| condition | sample_id | split_level_column | GeneA | GeneB | GeneC |
 |---|---|---|---:|---:|---:|
 | control | S1 | subset_1 | 0.14 | 1.22 | 0.00 |
 | disease | S2 | subset_1 | 0.51 | 0.92 | 0.07 |
@@ -137,7 +137,7 @@ package internals.
 
 When `build_dataset_from_seurat()` or `build_dataset_from_sce()` is used, the
 source metadata columns named by `condition_col`, `sample_col`, and
-`split_by_col` may have any valid source names. The adapters standardize the
+`split_level_column` may have any valid source names. The adapters standardize the
 first two roles to `condition` and `sample_id` in `dataset_all`. If a source
 split name would collide with either standardized name, the adapter creates a
 safe internal alias. Always use the returned name when building the analysis
@@ -146,15 +146,15 @@ config:
 ```r
 dataset_all <- dataset_res$dataset_all
 what_genes <- dataset_res$what_genes
-analysis_split_by_col <- dataset_res$split_by_col
+analysis_split_level_column <- dataset_res$split_level_column
 
-shapture_config$split_by_col <- analysis_split_by_col
+shapture_config$split_level_column <- analysis_split_level_column
 ```
 
 For example, `condition_col = "CXCR3_status"` and
-`split_by_col = "condition"` are valid together. The biological outcome stays
+`split_level_column = "condition"` are valid together. The biological outcome stays
 in `dataset_all$condition`, while the source `condition` metadata is carried in
-the collision-safe column reported by `dataset_res$split_by_col`. This mapping
+the collision-safe column reported by `dataset_res$split_level_column`. This mapping
 changes column bookkeeping only; values and analysis calculations are not
 modified. For backward compatibility, `resolve_shapture_script_config()` also
 recognizes the source split name when `dataset_all` came directly from one of
@@ -169,9 +169,8 @@ run the pipeline.
 library(SHAPTURE)
 
 shapture_config <- list(
-  split_by_col = "your_subset_column",
-  subset_levels = NULL,
-  split_levels = NULL,
+  split_level_column = "your_subset_column",
+  split_levels_to_analyze = NULL,
   comparison_mode = "condition_vs_condition",
   what_0 = "control",
   what_1 = "disease",
@@ -276,20 +275,35 @@ they belong to the target or pooled background.
 ### Condition vs condition
 
 Use this when you want to compare two biological groups across all cells or
-within each selected level of `split_by_col`.
+within each selected level of `split_level_column`.
 
 ### One vs others
 
 Use this when each selected level should become the positive class once. For
-example, if `split_levels = c("A", "B", "C")`, SHAPTURE creates separate
+example, if `split_levels_to_analyze = c("A", "B", "C")`, SHAPTURE creates separate
 result folders for:
 
 - `A` vs all other retained levels
 - `B` vs all other retained levels
 - `C` vs all other retained levels
 
-`subset_levels` controls which levels are retained before the task is built.
-`split_levels` controls which retained levels are analyzed as targets.
+`split_levels_to_analyze` selects analysis tasks, not the data retained in the
+input. `NULL` analyzes all available levels. Filter your object or prepared
+table before running SHAPTURE if you want to exclude levels entirely. For
+example, to analyze A against B while excluding C:
+
+```r
+dataset_all <- dataset_all[
+  dataset_all[[shapture_config$split_level_column]] %in% c("A", "B"),
+  , drop = FALSE
+]
+shapture_config$split_levels_to_analyze <- "A"
+```
+
+In one-vs-others, selecting A alone without filtering the input compares A
+against every other level present, including B and C. In condition-vs-condition,
+selecting A runs the condition comparison within A. The two configuration
+names shown here must be supplied exactly.
 
 ## Feature filtering and model-expression pattern
 

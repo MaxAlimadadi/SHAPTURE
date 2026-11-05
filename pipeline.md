@@ -21,7 +21,7 @@ The main script assumes that `dataset_all` already exists in memory before the m
 ### Required columns in `dataset_all`
 - `condition`: the two-group outcome to compare, for example `low` vs `high`
 - `sample_id`: sample, donor, or patient identifier
-- optional `split_by_col`: subset / cluster / cell-type / stratification label used for subset-specific analysis
+- optional `split_level_column`: subset / cluster / cell-type / stratification label used for subset-specific analysis
 - feature columns: genes, proteins, or other quantitative variables used as predictors
 
 ### Input preparation options
@@ -33,7 +33,7 @@ The main script assumes that `dataset_all` already exists in memory before the m
 - extracts marker features from `type_markers(sce)` and `state_markers(sce)`
 - optionally removes unwanted markers
 - creates `dataset_all`
-- returns the prepared-data split name in `dataset_res$split_by_col`
+- returns the prepared-data split name in `dataset_res$split_level_column`
 
 #### 2. From a Seurat object
 `getting_data_from_Seurat.R`:
@@ -43,14 +43,14 @@ The main script assumes that `dataset_all` already exists in memory before the m
 - finds variable features
 - extracts normalized expression values from the `data` layer
 - creates `dataset_all`
-- returns the prepared-data split name in `dataset_res$split_by_col`
+- returns the prepared-data split name in `dataset_res$split_level_column`
 
-For both adapters, `condition_col`, `sample_col`, and `split_by_col` refer to
+For both adapters, `condition_col`, `sample_col`, and `split_level_column` refer to
 columns in the source object's metadata and may have arbitrary names. SHAPTURE
 standardizes the prepared outcome and sample roles to `condition` and
 `sample_id`. If the source split name conflicts with either standardized name,
 the adapter stores it under a deterministic internal alias. The analysis
-config must therefore use `dataset_res$split_by_col`, as shown in the template
+config must therefore use `dataset_res$split_level_column`, as shown in the template
 scripts. Nonconflicting split names are preserved exactly.
 
 ---
@@ -59,9 +59,8 @@ scripts. Nonconflicting split names are preserved exactly.
 The main script defines a set of user-controlled parameters.
 
 ### Comparison setup
-- `split_by_col`: metadata column used for subset-specific analysis, or the target-defining column in `one_vs_others`
-- `subset_levels`: optional `split_by_col` levels to keep before task construction; `NULL` keeps all levels
-- `split_levels`: optional task levels to analyze; in `one_vs_others`, these are the target levels that get result folders
+- `split_level_column`: metadata column used for subset-specific analysis, or the target-defining column in `one_vs_others`
+- `split_levels_to_analyze`: optional task levels to analyze; in `one_vs_others`, these are the target levels that get result folders
 - `comparison_mode`: `condition_vs_condition` or `one_vs_others`
 - `what_0`, `what_1`: the two condition labels to compare in `condition_vs_condition`
 - `what_genes`: feature set used by the model
@@ -197,7 +196,7 @@ The script also supports environment-variable overrides for quick test runs:
 The workflow begins with `dataset_all`, a table where rows are cells or later metacells, and columns contain:
 - outcome label (`condition`)
 - sample identity (`sample_id`)
-- optional subset label (`split_by_col`)
+- optional subset label (`split_level_column`)
 - numeric predictors (`what_genes`)
 
 The script records the number of observations per condition and subset before entering the main loop.
@@ -225,12 +224,15 @@ If `memory_mode == "safe"`, this step does not change the modeling inputs. It on
 ---
 
 ## Step 3. Loop over analysis tasks
-Before tasks are built, `subset_levels` can optionally reduce `dataset_all` to only selected levels of `split_by_col`. `split_levels` then chooses which tasks are run from the retained data.
+Filter the source object or `dataset_all` before running SHAPTURE to restrict
+which levels are retained. `split_level_column` names the grouping column;
+`split_levels_to_analyze` chooses tasks from the supplied data, with `NULL`
+analyzing all available levels. It does not filter input rows.
 
 Each analysis task is processed separately:
 
 ```r
-for (temp_split in split_levels) {
+for (temp_split in split_levels_to_analyze) {
   ...
 }
 ```
@@ -239,7 +241,11 @@ This means SHAPTURE is not training one global model across all cell types. Inst
 
 **Within this analyzed subset or target comparison, which features best distinguish condition 0 from condition 1?**
 
-In `one_vs_others`, `subset_levels` controls the universe used to construct the pooled “others” class. For example, `subset_levels = c(0, 1, 2)` and `split_levels = c(0, 1)` runs `0` vs `1+2` and `1` vs `0+2`; level `2` is available as background but does not get its own folder unless it is also included in `split_levels`.
+In `one_vs_others`, all non-target levels present in the supplied data form the
+pooled “others” class. For example, an input containing levels `0`, `1` and `2`
+with `split_levels_to_analyze = c(0, 1)` runs `0` vs `1+2` and `1` vs `0+2`.
+Level `2` remains background without receiving its own result folder. To remove
+it from the background, filter it out of the input before calling the pipeline.
 
 Before model fitting, `feature_min_pct` and `feature_min_log2FC` reduce the feature set inside each task. Both filters are calculated from the original single-cell task data, even when the model itself is run on metacells. A feature is kept when it is detected as `> 0` in more than `feature_min_pct` of cells in at least one task group and has absolute expression log2FC at least `feature_min_log2FC`. The feature-level summary is written to `docs/feature_prefilter_summary.csv`, and each successful task writes a compact task-level `Integrated_adaptive_scoring_results/run_summary.csv`.
 
@@ -252,19 +258,19 @@ A central concern in the pipeline is unequal representation across patients or s
 Each condition is downsampled separately before modeling.
 
 - in `condition_vs_condition`, each sample is capped at the median sample size within its condition
-- in `one_vs_others`, the target class is capped by `sample_id`, while the pooled non-target class is capped by `sample_id × split_by_col`
+- in `one_vs_others`, the target class is capped by `sample_id`, while the pooled non-target class is capped by `sample_id × split_level_column`
 
 ### B. `weighted_sampling`
 All rows remain available, but train and test sampling probabilities are adjusted within each condition so overrepresented groups are sampled less often.
 
 - in `condition_vs_condition`, the balancing group is `sample_id`
-- in `one_vs_others`, the target class uses `sample_id`, while the pooled non-target class uses `sample_id × split_by_col`
+- in `one_vs_others`, the target class uses `sample_id`, while the pooled non-target class uses `sample_id × split_level_column`
 
 ### C. `model_weights`
 All rows remain in the dataset, and the training rows receive model weights that are inversely related to group-level representation.
 
 - in `condition_vs_condition`, the balancing group is `sample_id`
-- in `one_vs_others`, the target class uses `sample_id`, while the pooled non-target class uses `sample_id × split_by_col`
+- in `one_vs_others`, the target class uses `sample_id`, while the pooled non-target class uses `sample_id × split_level_column`
 
 This step is meant to reduce the chance that one patient with many cells dominates the classifier, and in `one_vs_others` mode it also reduces domination by a very large non-target split level.
 
@@ -614,7 +620,7 @@ as long as the data can be represented as a feature matrix with sample IDs, cond
 At minimum, the user should define:
 - `dataset_all`
 - `what_genes`
-- optional `split_by_col`
+- optional `split_level_column`
 - `what_0`
 - `what_1`
 - `sample_id` column inside `dataset_all`

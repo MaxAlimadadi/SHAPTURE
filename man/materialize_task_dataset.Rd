@@ -8,7 +8,7 @@ materialize_task_dataset(
   dataset,
   comparison_mode,
   temp_split,
-  split_by_col,
+  split_level_column,
   one_vs_others_col,
   task_what_0,
   task_what_1
@@ -21,7 +21,7 @@ materialize_task_dataset(
 
 \item{temp_split}{Current split/target level.}
 
-\item{split_by_col}{Effective split column for condition-vs-condition mode.}
+\item{split_level_column}{Effective split column for condition-vs-condition mode.}
 
 \item{one_vs_others_col}{Column used in one-vs-others mode.}
 
