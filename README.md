@@ -113,6 +113,16 @@ BiocManager::install(c(
 ))
 ```
 
+After installation, load SHAPTURE in your R session:
+
+```r
+library(SHAPTURE)
+```
+
+The editable scripts in `pipeline/` use the installed package. SHAPTURE loads
+its internal helper functions automatically; you do not need to source
+individual files from `R/` or load a separate helper script.
+
 ## Input data
 
 The modeling functions expect a table with one row per cell or metacell. At

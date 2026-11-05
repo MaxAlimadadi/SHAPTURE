@@ -1,3 +1,11 @@
+# SHAPTURE 0.0.0.9020
+
+- Removed the optional source loader from `pipeline/`. Data preparation,
+  analysis, and visualization templates use the installed package through
+  `library(SHAPTURE)`; no separate helper script is needed.
+- Internal package functions and all analysis and visualization calculations
+  are unchanged.
+
 # SHAPTURE 0.0.0.9019
 
 - Analysis-group configuration now uses `split_level_column` and

@@ -15,8 +15,13 @@ At a high level, the workflow:
 
 ---
 
+## Package workflow
+Install SHAPTURE and use `library(SHAPTURE)`. The editable data-preparation,
+analysis, and visualization scripts load the installed package; its internal
+helper functions do not need to be sourced separately.
+
 ## Expected input structure
-The main script assumes that `dataset_all` already exists in memory before the modeling section starts. The helper scripts show two ways to create it.
+The main script assumes that `dataset_all` already exists in memory before the modeling section starts. The data-preparation templates show two ways to create it.
 
 ### Required columns in `dataset_all`
 - `condition`: the two-group outcome to compare, for example `low` vs `high`
@@ -302,7 +307,8 @@ The single-folder and multiple-folder visualization recipes calculate dimensions
 ---
 
 ## Step 5. Build train/test sets for each iteration
-The function `prepare_train_test_data(...)` in `helper_function.R` handles the split.
+The package function `prepare_train_test_data(...)`, defined in
+`R/shapture_processing.R`, handles the split.
 
 What it does:
 - uses a coverage-aware test split plan built for the whole task
@@ -624,7 +630,7 @@ At minimum, the user should define:
 - `what_0`
 - `what_1`
 - `sample_id` column inside `dataset_all`
-- a valid working directory and helper script path
+- an installed SHAPTURE package and a valid output directory
 
 ---
 
@@ -636,7 +642,6 @@ SHAPTURE/
 ├── R/                         # package functions
 ├── man/                       # generated function documentation
 ├── pipeline/
-│   ├── helper_function.R
 │   ├── run_shapture_analysis.R
 │   ├── run_shapture_visualization.R
 │   ├── run_shapture_visualization_loop_multiple_folder.R
