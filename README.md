@@ -609,10 +609,7 @@ describes repeated-fit consistency, not independent biological replication.
 ## Release status and support
 
 `v0.1.0` is the first public release. It passed source installation and
-`R CMD check --no-manual` with no errors, warnings, or notes. All 609 test
-assertions passed, including parallel-worker tests, on macOS with R 4.4.0.
-Other platforms and R versions were not retested for this release. The package
-remains under active development.
+`R CMD check --no-manual` with no errors, warnings, or notes.
 
 Maintained by Max Alimadadi. Please use
 [GitHub Issues](https://github.com/MaxAlimadadi/SHAPTURE/issues) for questions
