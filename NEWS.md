@@ -1,5 +1,18 @@
 # SHAPTURE (development version)
 
+- `memory_mode` now defaults to `"safe"` in the package, script configuration,
+  and full configuration reference, matching the existing Seurat and SCE
+  templates. `"full"` remains available as an explicit setting. Only the
+  default changes; modeling, scoring and memory-mode implementations are
+  unchanged by this default-setting change.
+- Full-mode plot inputs now retain missing cell-feature SHAP values rather
+  than replacing them with zero. This prevents artificial zero-valued points
+  and dilution of condition-level SHAP averages. Safe-mode behavior and final
+  score/rank calculations are unchanged.
+- Seurat and SCE templates expose `project_name` before the two config presets.
+  Each preset uses that value as its result-folder prefix; `NULL` retains
+  automatic comparison-based naming.
+
 - Seurat input preparation now automatically joins split layers only when the
   selected assay has a supported method, including inherited methods.
   Already-joined assays are left alone. Legacy `Assay` and

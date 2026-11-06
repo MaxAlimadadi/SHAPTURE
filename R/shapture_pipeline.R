@@ -76,7 +76,7 @@ default_shapture_script_config <- function(what_genes) {
     preprocessing_method = "scale",
     model_type = "lightgbm",
     analysis_unit_type = "metacell",
-    memory_mode = "full",
+    memory_mode = "safe",
     patient_balance_method = "model_weights",
     patient_split_strategy = "shared_patients",
     shap_expr_cor_direction_filter = "both",
@@ -2636,7 +2636,7 @@ run_shapture_task <- function(
     shp_S <- as.matrix(shp_S)
     shp_X <- as.data.frame(shp_X, check.names = FALSE)
     shp_testdata <- as.data.frame(shp_testdata, check.names = FALSE)
-    shp_S[!is.finite(shp_S)] <- 0
+    # Unevaluated cell-feature pairs stay missing, not zero-contribution observations.
     if (is.null(colnames(shp_S)) || any(colnames(shp_S) == "")) {
       colnames(shp_S) <- colnames(shp_X)
     }
@@ -2775,7 +2775,9 @@ run_shapture_task <- function(
 #'   one-vs-others mode.
 #' @param what_0 Negative class label for condition-vs-condition mode.
 #' @param what_1 Positive class label for condition-vs-condition mode.
-#' @param project_name Optional output prefix.
+#' @param project_name Optional result-folder prefix. `NULL` builds one from
+#'   the comparison. Reusing a prefix and subset in the same output directory
+#'   reuses the corresponding result folder.
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
@@ -2808,7 +2810,9 @@ run_shapture_task <- function(
 #' @param preprocessing_method Either `"none"` or `"scale"`.
 #' @param model_type Model backend.
 #' @param analysis_unit_type Either `"single_cell"` or `"metacell"`.
-#' @param memory_mode Either `"full"` or `"safe"`.
+#' @param memory_mode `"safe"` (default) uses temporary disk chunks to reduce
+#'   RAM use. `"full"` keeps pooled SHAP payloads in memory. Both modes use the
+#'   same analysis rules; saved per-unit plot inputs may differ in size.
 #' @param patient_balance_method Patient balancing method.
 #' @param patient_split_strategy `"shared_patients"` keeps the existing
 #'   coverage-aware cell/metacell split and permits patient overlap between
@@ -2872,7 +2876,7 @@ run_shapture_pipeline <- function(
     preprocessing_method = "scale",
     model_type = "lightgbm",
     analysis_unit_type = "metacell",
-    memory_mode = "full",
+    memory_mode = "safe",
     patient_balance_method = "model_weights",
     patient_split_strategy = "shared_patients",
     shap_expr_cor_direction_filter = "both",

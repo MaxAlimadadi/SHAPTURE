@@ -241,6 +241,8 @@ run the pipeline.
 ```r
 library(SHAPTURE)
 
+project_name <- "analysis_name"  # Result-folder prefix for this run.
+
 shapture_config <- list(
   # For an object adapter, use dataset_res$split_level_column here.
   split_level_column = "cell_type",
@@ -270,7 +272,7 @@ shapture_config <- list(
   group_colors = c("darkblue", "darkred"),
   continuous_colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
   n_cores = 4,
-  project_name = NULL
+  project_name = project_name
 )
 
 pipeline_config <- resolve_shapture_script_config(
@@ -296,6 +298,13 @@ For a complete parameter reference, see:
 pipeline/shapture_config_full_reference.R
 ```
 
+The Seurat and SCE templates also expose `project_name` just before their config
+presets. Change it for each analysis to keep result folders separate. For
+example, `project_name <- "run_A"` and subset `B` produce `run_A_B` under the
+chosen output directory. Set it to `NULL` for automatic comparison-based
+naming. Reusing a name with the same subset and output directory reuses its
+folders, including across comparison modes.
+
 ### Reproducibility
 
 `analysis_seed = 123L` is the default reproducibility root. SHAPTURE derives
@@ -313,11 +322,16 @@ Every completed task records its complete seed plan in
 
 ### Memory use
 
-`memory_mode = "safe"` stores large iteration-level SHAP payloads in temporary
-disk chunks and reads them back in stages. The chunks are removed when the task
-finishes. `"full"` keeps those payloads in memory. Both modes use the same
+`memory_mode = "safe"` is the package default. It stores large iteration-level
+SHAP payloads in temporary disk chunks and reads them back in stages. The chunks
+are removed when the task finishes. `"full"` keeps those payloads in memory.
+Both modes use the same
 unit-averaging and scoring rules; saved per-feature plotting inputs can differ
 in size, as noted below.
+
+Both modes preserve missing cell-feature SHAP observations in plot inputs.
+Condition-level SHAP averages exclude those missing observations rather than
+treating them as zero contributions.
 
 ### Parallel execution
 

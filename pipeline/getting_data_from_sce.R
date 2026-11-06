@@ -76,6 +76,11 @@ dataset_all$condition <- factor(dataset_all$condition, levels = condition_levels
 # shapture_config.
 #####
 
+# Result-folder prefix for this run; change it to keep analyses separate.
+# NULL uses automatic comparison names. Reusing a name in the same output
+# directory reuses the corresponding result folders.
+project_name <- "analysis_name"
+
 shapture_config_condition_vs_condition <- list(
   # subset column; use NULL for one global condition-vs-condition run
   split_level_column = analysis_split_level_column,
@@ -163,7 +168,8 @@ shapture_config_condition_vs_condition <- list(
   # requested maximum for model and Cross-patient bootstrap workers;
   # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
-  project_name = NULL
+  # Use the run name defined above as the result-folder prefix.
+  project_name = project_name
 )
 
 shapture_config_one_vs_others <- list(
@@ -250,7 +256,8 @@ shapture_config_one_vs_others <- list(
   # requested maximum for model and Cross-patient bootstrap workers;
   # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
-  project_name = NULL
+  # Use the run name defined above as the result-folder prefix.
+  project_name = project_name
 )
 
 # Pick the active config here.

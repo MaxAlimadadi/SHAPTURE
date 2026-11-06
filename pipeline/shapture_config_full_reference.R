@@ -42,7 +42,8 @@ shapture_config_full <- list(
   what_0 = "low",
   what_1 = "high",
   
-  # optional output prefix; NULL builds one automatically
+  # result-folder prefix; NULL builds one from the comparison automatically
+  # the getter templates expose project_name above their config presets
   project_name = NULL,
   
   #
@@ -123,7 +124,7 @@ shapture_config_full <- list(
   # "full" keeps pooled SHAP payloads in memory; "safe" uses temporary
   # iteration chunks on disk, rebuilds pooled SHAP summaries one chunk at a
   # time, and deletes the temporary files automatically at the end
-  memory_mode = "full",
+  memory_mode = "safe",
   
   #
   # ---- Sample-aware balancing ----

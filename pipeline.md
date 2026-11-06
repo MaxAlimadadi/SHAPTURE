@@ -87,6 +87,11 @@ The main script defines a set of user-controlled parameters.
 - `comparison_mode`: `condition_vs_condition` or `one_vs_others`
 - `what_0`, `what_1`: the two condition labels to compare in `condition_vs_condition`
 - `what_genes`: feature set used by the model
+- `project_name`: result-folder prefix, exposed above the config presets in
+  both getter templates. Change `project_name <- "analysis_name"` for each
+  analysis; each config uses `project_name = project_name`. `NULL` keeps
+  automatic comparison-based naming. Reusing the same name, subset and output
+  directory reuses its result folders, even if the comparison mode changes.
 - `feature_min_pct`: task-specific detection filter from original single-cell task data; default is `0.25`, and `0` disables it
 - `feature_min_log2FC`: task-specific expression log2FC filter from original single-cell task data; default is `0.25`, and `0` disables it
 - `shap_expr_cor_cutoff`: minimum absolute value-to-SHAP correlation required for `Model_expression_pattern`; default is `0.25`
@@ -119,10 +124,15 @@ The main script defines a set of user-controlled parameters.
 
 ### Memory mode
 - `memory_mode`:
-  - `full`
-  - `safe`
+  - `safe` (package and template default)
+  - `full` (explicit opt-in)
 
 `safe` mode writes iteration-level SHAP payloads to temporary disk chunks, rebuilds pooled SHAP summaries one chunk at a time, and deletes the temporary files automatically at the end. It also avoids sending full per-iteration model-fit objects back through parallel workers. It is designed to reduce peak RAM use without changing the final result tables or figures.
+
+Missing cell-feature SHAP observations remain missing in both modes' saved
+plot inputs. They are excluded from condition-level averages, not replaced by
+zero. Full mode previously inserted plotting-only zeros after scoring; that
+behavior is corrected without changing final score or rank calculations.
 
 ### Parallel execution safeguards
 Model-fitting PSOCK workers are task-specific and are stopped before

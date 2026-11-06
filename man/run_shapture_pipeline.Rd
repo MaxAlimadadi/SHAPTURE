@@ -37,7 +37,7 @@ run_shapture_pipeline(
   preprocessing_method = "scale",
   model_type = "lightgbm",
   analysis_unit_type = "metacell",
-  memory_mode = "full",
+  memory_mode = "safe",
   patient_balance_method = "model_weights",
   patient_split_strategy = "shared_patients",
   shap_expr_cor_direction_filter = "both",
@@ -87,7 +87,9 @@ one-vs-others mode.}
 
 \item{what_1}{Positive class label for condition-vs-condition mode.}
 
-\item{project_name}{Optional output prefix.}
+\item{project_name}{Optional result-folder prefix. \code{NULL} builds one from
+the comparison. Reusing a prefix and subset in the same output directory
+reuses the corresponding result folder.}
 
 \item{train_ratio}{Training fraction.}
 
@@ -139,7 +141,9 @@ score components.}
 
 \item{analysis_unit_type}{Either \code{"single_cell"} or \code{"metacell"}.}
 
-\item{memory_mode}{Either \code{"full"} or \code{"safe"}.}
+\item{memory_mode}{\code{"safe"} (default) uses temporary disk chunks to reduce
+RAM use. \code{"full"} keeps pooled SHAP payloads in memory. Both modes use the
+same analysis rules; saved per-unit plot inputs may differ in size.}
 
 \item{patient_balance_method}{Patient balancing method.}
 
