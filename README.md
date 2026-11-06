@@ -129,7 +129,7 @@ BiocManager::install(
   update = FALSE
 )
 
-remotes::install_github("MaxAlimadadi/SHAPTURE@v0.1.0", upgrade = "never")
+remotes::install_github("MaxAlimadadi/SHAPTURE", ref = "main", force = TRUE)
 ```
 
 `BiocManager` selects the Bioconductor release appropriate for your R version.
@@ -137,11 +137,9 @@ See the [Bioconductor installation guide](https://bioconductor.org/install/)
 if dependency installation fails. Some dependencies may need system compilers
 when a suitable binary package is unavailable.
 
-To use the development branch instead of the fixed release:
-
-```r
-remotes::install_github("MaxAlimadadi/SHAPTURE", ref = "main", upgrade = "never")
-```
+This installs the current `main` branch. `force = TRUE` reinstalls SHAPTURE even
+when that GitHub version is already installed. The installer may ask whether
+to update dependency packages.
 
 After installation, load SHAPTURE in your R session:
 
@@ -154,17 +152,15 @@ its internal helper functions automatically; you do not need to source
 individual files from `R/` or load a separate helper script.
 
 For editable scripts, download the
-[v0.1.0 repository snapshot](https://github.com/MaxAlimadadi/SHAPTURE/archive/refs/tags/v0.1.0.zip)
+[main-branch snapshot](https://github.com/MaxAlimadadi/SHAPTURE/archive/refs/heads/main.zip)
 and copy its `pipeline/` folder into your project. Installing the R package does
 not create those scripts in your working directory. You can also browse the
-[release templates](https://github.com/MaxAlimadadi/SHAPTURE/tree/v0.1.0/pipeline)
+[current templates](https://github.com/MaxAlimadadi/SHAPTURE/tree/main/pipeline)
 on GitHub. The release includes a standard R source-package archive; GitHub's
 separate Packages registry is not needed for this installation.
 
-The unified visualization script described below is a development update after
-v0.1.0. To use it, install the development branch and copy `pipeline/` from the
-[main-branch snapshot](https://github.com/MaxAlimadadi/SHAPTURE/archive/refs/heads/main.zip).
-Keep the installed package and editable templates from the same version.
+The unified visualization script described below is available on `main` after
+v0.1.0. Keep the installed package and editable templates from the same version.
 
 Start with `pipeline/getting_data_from_Seurat.R` or
 `pipeline/getting_data_from_sce.R`, edit its input and metadata settings, then

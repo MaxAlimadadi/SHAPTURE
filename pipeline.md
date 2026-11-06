@@ -16,7 +16,17 @@ At a high level, the workflow:
 ---
 
 ## Package workflow
-Install SHAPTURE and use `library(SHAPTURE)`. The editable data-preparation,
+After installing the dependencies listed in the README, install or refresh the
+current GitHub version with:
+
+```r
+remotes::install_github("MaxAlimadadi/SHAPTURE", ref = "main", force = TRUE)
+```
+
+Use the editable templates from the same `main` branch. The installer may ask
+whether to update dependency packages.
+
+Load it with `library(SHAPTURE)`. The editable data-preparation,
 analysis, and visualization scripts load the installed package; its internal
 helper functions do not need to be sourced separately.
 
