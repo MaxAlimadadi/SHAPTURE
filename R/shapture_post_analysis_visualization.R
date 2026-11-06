@@ -71,13 +71,14 @@ save_shapture_visualization_inputs <- function(
 
 #' Find completed SHAPTURE result folders
 #'
-#' Searches the immediate subfolders of an analysis directory and retains only
-#' folders containing the saved table and visualization-input bundle required
-#' by the post-analysis visualization pipeline. Folder names and comparison
-#' modes do not affect discovery.
+#' Accepts one completed result folder or searches the immediate subfolders of
+#' a parent directory. A completed folder contains the saved table and
+#' visualization-input bundle required by the post-analysis visualization
+#' pipeline. If the supplied directory is itself complete, only that directory
+#' is returned. Folder names and comparison modes do not affect discovery.
 #'
-#' @param analysis_root Parent directory containing completed SHAPTURE result
-#'   folders.
+#' @param analysis_root One completed SHAPTURE result folder, or a parent
+#'   directory containing completed result folders.
 #'
 #' @return A sorted character vector of valid result-folder paths.
 #' @export
@@ -87,14 +88,18 @@ find_shapture_result_folders <- function(analysis_root) {
     stop("analysis_root must be an existing directory.")
   }
 
+  required_files <- c(
+    file.path("docs", "combined_results.csv"),
+    file.path("docs", "visualization_inputs.rds")
+  )
+  if (all(file.exists(file.path(analysis_root, required_files)))) {
+    return(analysis_root)
+  }
+
   candidate_folders <- list.dirs(
     path = analysis_root,
     full.names = TRUE,
     recursive = FALSE
-  )
-  required_files <- c(
-    file.path("docs", "combined_results.csv"),
-    file.path("docs", "visualization_inputs.rds")
   )
   valid_folders <- candidate_folders[vapply(
     candidate_folders,
@@ -104,7 +109,7 @@ find_shapture_result_folders <- function(analysis_root) {
 
   if (length(valid_folders) == 0L) {
     stop(
-      "No completed SHAPTURE result folders were found directly inside analysis_root."
+      "No completed SHAPTURE result folders were found at analysis_root or directly inside it."
     )
   }
 

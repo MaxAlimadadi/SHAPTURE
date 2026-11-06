@@ -7,15 +7,16 @@
 find_shapture_result_folders(analysis_root)
 }
 \arguments{
-\item{analysis_root}{Parent directory containing completed SHAPTURE result
-folders.}
+\item{analysis_root}{One completed SHAPTURE result folder, or a parent
+directory containing completed result folders.}
 }
 \value{
 A sorted character vector of valid result-folder paths.
 }
 \description{
-Searches the immediate subfolders of an analysis directory and retains only
-folders containing the saved table and visualization-input bundle required
-by the post-analysis visualization pipeline. Folder names and comparison
-modes do not affect discovery.
+Accepts one completed result folder or searches the immediate subfolders of
+a parent directory. A completed folder contains the saved table and
+visualization-input bundle required by the post-analysis visualization
+pipeline. If the supplied directory is itself complete, only that directory
+is returned. Folder names and comparison modes do not affect discovery.
 }

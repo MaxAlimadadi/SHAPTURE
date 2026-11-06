@@ -140,11 +140,11 @@ input data and row order, package versions, and analysis parameters.
 
 ### Post-analysis plotting
 - Analysis always saves result tables and `docs/visualization_inputs.rds`; figures are made afterward with `pipeline/run_shapture_visualization.R`.
-- `pipeline/run_shapture_visualization.R` is an editable single-folder figure recipe, not a black-box rendering function. `top_feature_show`, `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and `height_per_feature` are defined once near the top.
-- `pipeline/run_shapture_visualization_loop_multiple_folder.R` applies the same editable settings to every immediate child folder containing `docs/combined_results.csv` and `docs/visualization_inputs.rds`. Discovery is independent of comparison mode and folder name.
+- `pipeline/run_shapture_visualization.R` is one editable, loop-based recipe for one or several completed result folders, not a black-box rendering function. `top_feature_show`, `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and `height_per_feature` are defined once before the loop.
+- Set `analysis_root` to a completed result folder or its parent. If that directory contains `docs/combined_results.csv` and `docs/visualization_inputs.rds`, only it is plotted. Otherwise, the script applies the same settings to every immediate child containing both files. Discovery is independent of comparison mode and folder name and does not search deeper levels.
 - Condition-level waterfall plots use `top_feature_show` for their displayed row count and label every row with its average feature value where available. Any collapsed "other features" row retains its summary label. `top_feature_label` applies to selective labels in force and scatter plots only; it never hides or merges waterfall rows. The waterfall helper still accepts the older `top_feature_label` argument for compatibility but ignores it.
 - Feature-dependent dimensions are calculated from the actual number displayed. Plot-specific base sizes and bounds remain in `calculate_shapture_figure_size()`, while every visible `pdf()` or `png()` call can still be changed to a fixed width or height directly. Density plots use the actual saved density-feature count to form a near-square grid with consistent panel space and additional horizontal room for the legend.
-- The original beeswarm remains unchanged. The visualization recipes also create an equal-count binned beeswarm and one dependency PDF per feature actually displayed in the beeswarm. Both new plots reuse the same feature-specific groups.
+- The original beeswarm remains unchanged. The visualization recipe also creates an equal-count binned beeswarm and one dependency PDF per feature actually displayed in the beeswarm. Both new plots reuse the same feature-specific groups.
 - `save_plot_objects`: `FALSE` by default inside the visualization script. Set it to `TRUE` there only when you want the reusable ggplot object list saved to `docs/plots.rds`; leaving it off makes large runs faster and uses less disk.
 
 ### Global visualization across split levels
@@ -302,7 +302,7 @@ During analysis, each completed result folder saves `docs/visualization_inputs.r
 
 When `save_plot_objects = TRUE` in the visualization step, the result folder also saves `docs/plots.rds`, which contains the generated plot objects. This makes it possible to reopen a plot later, print it at a different size, or modify themes, fonts, labels, and colors without rerunning the analysis. The default is `FALSE` because saving large plot-object lists can slow down large runs.
 
-The single-folder and multiple-folder visualization recipes calculate dimensions automatically. Edit `width_per_feature` and `height_per_feature` near the top to change how most feature-dependent figures grow. Density plots instead calculate `ceiling(sqrt(n_features))` columns from the actual saved features and derive the required rows and device dimensions automatically, keeping facet dimensions approximately consistent. To use an exact size for one figure, replace `calculated_size$width` or `calculated_size$height` with a number in that figure's visible `pdf()`/`png()` call. Dot-label sizes remain visible beside the corresponding plot call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `beeswarm_plot_top.N.features.png`, `binned_beeswarm_plot_top.N.features.png`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`. Here, `N` is the number actually shown. Dependency plots are written separately to `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`.
+The unified visualization recipe calculates dimensions automatically. Edit `width_per_feature` and `height_per_feature` near the top to change how most feature-dependent figures grow. Density plots instead calculate `ceiling(sqrt(n_features))` columns from the actual saved features and derive the required rows and device dimensions automatically, keeping facet dimensions approximately consistent. To use an exact size for one figure, replace `calculated_size$width` or `calculated_size$height` with a number in that figure's visible `pdf()`/`png()` call. Dot-label sizes remain visible beside the corresponding plot call. The comparison name is kept in the output folder, so integrated figure filenames are intentionally shorter, for example `ROC_plot.pdf`, `feature_importance_top.N.pdf`, `beeswarm_plot_top.N.features.png`, `binned_beeswarm_plot_top.N.features.png`, `score_decomposition_top.N.pdf`, `evidence_heatmap_top.N.pdf`, `shap_vs_expression.pdf`, and `valueSHAP_by_feature.pdf`. Here, `N` is the number actually shown. Dependency plots are written separately to `Integrated_adaptive_scoring_results/shap_value_dependency_plots/`.
 
 ---
 
@@ -559,7 +559,7 @@ The package imports plotting tools commonly used in this script:
 - `reshape2`
 - `paletteer`
 
-After the analysis finishes, set `result_dir` in `pipeline/run_shapture_visualization.R` to one completed result folder and run the script. The visualization script reads `docs/combined_results.csv` and `docs/visualization_inputs.rds`, then calls each plot function explicitly and writes or overwrites the figure files.
+After the analysis finishes, set `analysis_root` in `pipeline/run_shapture_visualization.R` to one completed result folder or the immediate parent of several, then run the script. A completed input folder is plotted directly; otherwise, each completed immediate child is plotted using the same settings. The visualization script reads `docs/combined_results.csv` and `docs/visualization_inputs.rds`, then calls each plot function explicitly and writes or overwrites the figure files. This unified recipe is available on the development branch after v0.1.0; install the matching package version when using its templates.
 
 Expected outputs include:
 - SHAP feature-importance plots
@@ -644,7 +644,7 @@ SHAPTURE/
 ├── pipeline/
 │   ├── run_shapture_analysis.R
 │   ├── run_shapture_visualization.R
-│   ├── run_shapture_visualization_loop_multiple_folder.R
+│   ├── run_shapture_global_visualization.R
 │   ├── getting_data_from_sce.R
 │   ├── getting_data_from_Seurat.R
 │   └── shapture_config_full_reference.R

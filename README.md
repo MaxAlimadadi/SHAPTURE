@@ -161,6 +161,11 @@ not create those scripts in your working directory. You can also browse the
 on GitHub. The release includes a standard R source-package archive; GitHub's
 separate Packages registry is not needed for this installation.
 
+The unified visualization script described below is a development update after
+v0.1.0. To use it, install the development branch and copy `pipeline/` from the
+[main-branch snapshot](https://github.com/MaxAlimadadi/SHAPTURE/archive/refs/heads/main.zip).
+Keep the installed package and editable templates from the same version.
+
 Start with `pipeline/getting_data_from_Seurat.R` or
 `pipeline/getting_data_from_sce.R`, edit its input and metadata settings, then
 run `pipeline/run_shapture_analysis.R`. The quick start below shows the
@@ -468,8 +473,14 @@ After a run finishes, edit:
 pipeline/run_shapture_visualization.R
 ```
 
-Set `result_dir` to a completed result folder, then rerun the script. This
-lets you change top-feature counts, figure sizes, colors, and label sizes
+Set `analysis_root` to either one completed result folder or a parent directory
+containing several completed result folders, then run the script. If the
+supplied folder contains both `docs/combined_results.csv` and
+`docs/visualization_inputs.rds`, the script plots only that folder. Otherwise,
+it finds completed result folders immediately inside the parent and plots each
+with the same settings. Discovery works for condition-vs-condition and
+one-vs-others results without depending on folder names; it is not recursive.
+This lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
 
 The full retained ranking remains in `combined_results.csv`. In safe memory
@@ -499,17 +510,6 @@ allocates consistent physical space to each facet plus horizontal room for the
 legend. The feature-specific axis ranges remain free. For example, 10, 20, 30,
 and 50 features are arranged as 4 by 3, 5 by 4, 6 by 5, and 8 by 7 grids.
 
-To redraw several completed result folders with the same settings, edit:
-
-```text
-pipeline/run_shapture_visualization_loop_multiple_folder.R
-```
-
-Set `analysis_root` to their immediate parent directory. The script detects
-subfolders containing both `docs/combined_results.csv` and
-`docs/visualization_inputs.rds`, so it works for condition-vs-condition and
-one-vs-others results without depending on folder names.
-
 Feature-importance bars display the integrated final score, not raw SHAP
 importance. Score decomposition and the component heatmaps show the evidence
 behind that integrated score.
@@ -528,7 +528,7 @@ feature values after mapping both dimensions to 0-1 for grouping only. Each
 hexagon uses mean SHAP on the x-axis and mean feature value as its color.
 The dependency plot also uses mean feature value on the y-axis; the binned
 beeswarm instead groups hexagons by feature with Tukey vertical spreading.
-Set `binned_beeswarm_hexagon_size` in either editable visualization
+Set `binned_beeswarm_hexagon_size` in the editable visualization
 script to make the binned-beeswarm symbols smaller or larger; the default is
 `0.98`. This binning is only for display: scores, correlations, rankings, and
 dependency smooths continue to use the original unbinned values. Output names

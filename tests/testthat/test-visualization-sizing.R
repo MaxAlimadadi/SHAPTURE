@@ -187,3 +187,69 @@ test_that("result-folder discovery reports invalid roots and empty roots", {
     "No completed SHAPTURE result folders"
   )
 })
+
+test_that("result-folder discovery accepts a completed folder directly", {
+  analysis_root <- tempfile("completed result with spaces ")
+  docs_dir <- file.path(analysis_root, "docs")
+  dir.create(docs_dir, recursive = TRUE)
+  on.exit(unlink(analysis_root, recursive = TRUE), add = TRUE)
+  required_files <- file.path(docs_dir, c("combined_results.csv", "visualization_inputs.rds"))
+  file.create(required_files)
+  original_hashes <- tools::md5sum(required_files)
+
+  expect_identical(find_shapture_result_folders(analysis_root), analysis_root)
+  trailing_slash <- paste0(analysis_root, "/")
+  expect_identical(find_shapture_result_folders(trailing_slash), trailing_slash)
+  expect_identical(tools::md5sum(required_files), original_hashes)
+})
+
+test_that("a parent with one completed folder uses the same discovery workflow", {
+  analysis_root <- tempfile("one-result-parent-")
+  result_dir <- file.path(analysis_root, "arbitrary result name")
+  docs_dir <- file.path(result_dir, "docs")
+  dir.create(docs_dir, recursive = TRUE)
+  on.exit(unlink(analysis_root, recursive = TRUE), add = TRUE)
+  file.create(file.path(docs_dir, c("combined_results.csv", "visualization_inputs.rds")))
+
+  expect_identical(find_shapture_result_folders(analysis_root), result_dir)
+  expect_identical(find_shapture_result_folders(result_dir), result_dir)
+})
+
+test_that("a completed input folder takes precedence over nested results", {
+  analysis_root <- tempfile("complete-root-")
+  on.exit(unlink(analysis_root, recursive = TRUE), add = TRUE)
+  for (folder in c(analysis_root, file.path(analysis_root, "nested_result"))) {
+    docs_dir <- file.path(folder, "docs")
+    dir.create(docs_dir, recursive = TRUE)
+    file.create(file.path(docs_dir, c("combined_results.csv", "visualization_inputs.rds")))
+  }
+
+  expect_identical(find_shapture_result_folders(analysis_root), analysis_root)
+})
+
+test_that("parent discovery skips incomplete folders and does not recurse", {
+  analysis_root <- tempfile("incomplete-root-")
+  on.exit(unlink(analysis_root, recursive = TRUE), add = TRUE)
+  docs_dir <- file.path(analysis_root, "docs")
+  nested_docs <- file.path(analysis_root, "container", "nested_result", "docs")
+  dir.create(docs_dir, recursive = TRUE)
+  dir.create(nested_docs, recursive = TRUE)
+  file.create(file.path(docs_dir, "combined_results.csv"))
+  file.create(file.path(nested_docs, c("combined_results.csv", "visualization_inputs.rds")))
+
+  expect_error(
+    find_shapture_result_folders(analysis_root),
+    "No completed SHAPTURE result folders were found at analysis_root or directly inside it",
+    fixed = TRUE
+  )
+  expect_identical(
+    find_shapture_result_folders(file.path(analysis_root, "container")),
+    file.path(analysis_root, "container", "nested_result")
+  )
+})
+
+test_that("result-folder discovery rejects malformed directory inputs", {
+  for (root in list(NULL, character(), NA_character_, "", c(tempdir(), tempdir()), 1L)) {
+    expect_error(find_shapture_result_folders(root), "existing directory")
+  }
+})

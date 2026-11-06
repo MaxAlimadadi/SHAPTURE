@@ -1,3 +1,13 @@
+# SHAPTURE (development version)
+
+- Consolidated post-analysis plotting into one editable
+  `pipeline/run_shapture_visualization.R` script, retaining the loop workflow
+  and removing the duplicate template. It accepts either one completed result
+  folder or a parent containing completed result folders. A completed input
+  folder takes precedence over its children; parent discovery stays limited
+  to immediate children, regardless of comparison mode or folder naming.
+- Analysis, scoring, plot builders, and figure settings are unchanged.
+
 # SHAPTURE 0.1.0
 
 - Prepared version 0.1.0 from the existing development workflow. Modeling,
