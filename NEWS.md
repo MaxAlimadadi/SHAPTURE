@@ -1,5 +1,14 @@
 # SHAPTURE (development version)
 
+- Seurat input preparation now automatically joins split layers only when the
+  selected assay has a supported method, including inherited methods.
+  Already-joined assays are left alone. Legacy `Assay` and
+  `SCTAssay` objects no longer fail at `JoinLayers()` and are not converted.
+  The Seurat template uses the same check before feature selection. Existing
+  normalization, feature extraction, modeling, and scoring are unchanged.
+- Layer families are matched separately when joining, preventing split
+  `scale.data` layers from being mistaken for `data` layers.
+
 - Consolidated post-analysis plotting into one editable
   `pipeline/run_shapture_visualization.R` script, retaining the loop workflow
   and removing the duplicate template. It accepts either one completed result

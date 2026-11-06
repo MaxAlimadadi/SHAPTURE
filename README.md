@@ -195,9 +195,17 @@ Template scripts for preparing data and running analyses are in `pipeline/`.
 They are meant to be copied or edited for a project, not treated as fixed
 package internals.
 
-The Seurat adapter joins assay layers when available, runs `LogNormalize`
-with a scale factor of 10,000 on the selected assay, and reads the requested
-layer (`"data"` by default). The SCE adapter expects an `exprs` assay. It uses
+The Seurat adapter automatically joins split counts, data, or scale.data layers
+when the selected assay supports joining, including inherited methods.
+Already-joined assays and legacy `Assay` or `SCTAssay` objects are left alone;
+no conversion to `Assay5` or manual `JoinLayers()` call is needed. It still runs
+`LogNormalize` with a scale factor of 10,000 on the selected assay and reads the
+requested layer (`"data"` by default), so that assay must support those steps.
+The Seurat template uses the same assay-aware check before feature selection.
+The `assay` name is not restricted to RNA: SCT, ADT, and custom names also work
+when their assay objects support the normalization and extraction steps. The
+`layer` setting separately selects a matrix inside that assay.
+The SCE adapter expects an `exprs` assay. It uses
 CATALYST type/state markers when `feature_cols = NULL`; pass an explicit
 feature list for an SCE without that marker annotation. Supplying a prepared
 table avoids the object adapters' extraction and normalization steps.

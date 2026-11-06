@@ -33,9 +33,8 @@ assay <- "RNA"
 layer <- "data"
 
 DefaultAssay(my_obj) <- assay
-if (exists("JoinLayers", where = asNamespace("SeuratObject"), inherits = FALSE)) {
-  my_obj <- SeuratObject::JoinLayers(my_obj)
-}
+# Keeps legacy assays unchanged; joins layers only for assay classes that support it.
+my_obj <- join_seurat_layers_if_supported(my_obj, assay = assay)
 
 # Use your preferred feature set here. Examples:
 # what_genes <- VariableFeatures(my_obj)

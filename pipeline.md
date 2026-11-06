@@ -53,12 +53,20 @@ The main script assumes that `dataset_all` already exists in memory before the m
 #### 2. From a Seurat object
 `getting_data_from_Seurat.R`:
 - loads a Seurat object
-- joins assay layers and normalizes the selected assay
+- automatically joins split counts, data, or scale.data layers in the selected assay when its class supports joining, then normalizes it; already-joined and legacy assays are not joined or converted
 - optionally subsets selected condition levels
 - finds variable features
 - extracts normalized expression values from the `data` layer
 - creates `dataset_all`
 - returns the prepared-data split name in `dataset_res$split_level_column`
+
+`build_dataset_from_seurat()` performs this check internally; a separate
+`JoinLayers()` call is not needed. The editable template also uses
+`join_seurat_layers_if_supported()` before selecting variable features. The
+check recognizes inherited joining methods, leaves legacy `Assay` and
+`SCTAssay` objects intact, and does not hide genuine joining errors. Existing
+`LogNormalize` settings and layer extraction are unchanged; the selected assay
+must still support those operations.
 
 For both adapters, `condition_col`, `sample_col`, and `split_level_column` refer to
 columns in the source object's metadata and may have arbitrary names. SHAPTURE

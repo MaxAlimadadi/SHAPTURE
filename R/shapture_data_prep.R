@@ -1,5 +1,11 @@
 #' Build SHAPTURE input from a Seurat object
 #'
+#' Automatically joins split layers when the selected assay class supports
+#' `JoinLayers()`. Already-joined assays are left alone.
+#' Legacy `Assay` and `SCTAssay` objects do not need to be converted. The selected
+#' assay must still support the existing `LogNormalize` and layer-extraction
+#' steps; normalization uses a scale factor of 10,000.
+#'
 #' @param seurat_obj A Seurat object.
 #' @param condition_col Metadata column containing the binary condition labels.
 #' @param sample_col Metadata column containing sample identifiers.
@@ -40,9 +46,7 @@ build_dataset_from_seurat <- function(
   }
   
   Seurat::DefaultAssay(seurat_obj) <- assay
-  if (exists("JoinLayers", where = asNamespace("SeuratObject"), inherits = FALSE)) {
-    seurat_obj <- SeuratObject::JoinLayers(seurat_obj)
-  }
+  seurat_obj <- join_seurat_layers_if_supported(seurat_obj, assay = assay)
   seurat_obj <- Seurat::NormalizeData(
     seurat_obj,
     normalization.method = "LogNormalize",
@@ -104,6 +108,70 @@ build_dataset_from_seurat <- function(
     what_genes = genes,
     split_level_column = prepared_split_level_column,
     column_mapping = column_mapping
+  )
+}
+
+
+#' Join Seurat assay layers when the assay supports it
+#'
+#' Checks the selected assay's class and inherited classes for a `JoinLayers()`
+#' method, then checks for split counts, data, or scale.data layers. Layer
+#' families are matched separately so scale.data is not mistaken for data.
+#' Already-joined assays and assays without a joining method, including legacy
+#' `Assay` and `SCTAssay` objects, are returned unchanged. No assay is converted
+#' to another class. Errors from a supported joining method are not suppressed.
+#'
+#' @param seurat_obj A Seurat object.
+#' @param assay Any existing assay name, independent of its class. `NULL` uses
+#'   the default assay.
+#'
+#' @return The Seurat object with the selected assay's layers joined when
+#'   supported, or the original object when joining is not supported. This
+#'   function does not normalize data or change the default assay.
+#' @export
+join_seurat_layers_if_supported <- function(seurat_obj, assay = NULL) {
+  if (!inherits(seurat_obj, "Seurat")) {
+    stop("seurat_obj must be a Seurat object.")
+  }
+  if (is.null(assay)) {
+    assay <- SeuratObject::DefaultAssay(seurat_obj)
+  }
+  if (!is.character(assay) || length(assay) != 1L || is.na(assay) ||
+      !nzchar(assay) || !assay %in% SeuratObject::Assays(seurat_obj)) {
+    stop("assay must name one assay present in seurat_obj.")
+  }
+
+  seurat_namespace <- asNamespace("SeuratObject")
+  join_layers <- get0("JoinLayers", envir = seurat_namespace, inherits = FALSE)
+  if (!is.function(join_layers)) {
+    return(seurat_obj)
+  }
+
+  selected_assay <- seurat_obj[[assay]]
+  assay_classes <- unique(c(class(selected_assay), methods::is(selected_assay), "default"))
+  supports_joining <- any(vapply(assay_classes, function(assay_class) {
+    !is.null(utils::getS3method(
+      "JoinLayers", assay_class, optional = TRUE, envir = seurat_namespace
+    ))
+  }, logical(1)))
+  if (!supports_joining) {
+    return(seurat_obj)
+  }
+
+  layer_families <- c("counts", "data", "scale.data")
+  layer_patterns <- paste0("^", gsub(".", "[.]", layer_families, fixed = TRUE), "($|[._])")
+  layer_names <- SeuratObject::Layers(selected_assay, search = NA)
+  needs_joining <- any(vapply(seq_along(layer_families), function(i) {
+    matched_layers <- grep(layer_patterns[[i]], layer_names, value = TRUE)
+    length(matched_layers) > 1L ||
+      (length(matched_layers) == 1L && matched_layers[[1]] != layer_families[[i]])
+  }, logical(1)))
+  if (!needs_joining) {
+    return(seurat_obj)
+  }
+
+  SeuratObject::JoinLayers(
+    seurat_obj, assay = assay, layers = layer_patterns, new = layer_families
   )
 }
 

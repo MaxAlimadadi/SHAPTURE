@@ -43,5 +43,9 @@ split is stored under a deterministic internal alias returned in
 \code{split_level_column}.
 }
 \description{
-Build SHAPTURE input from a Seurat object
+Automatically joins split layers when the selected assay class supports
+\code{JoinLayers()}. Already-joined assays are left alone.
+Legacy \code{Assay} and \code{SCTAssay} objects do not need to be converted. The selected
+assay must still support the existing \code{LogNormalize} and layer-extraction
+steps; normalization uses a scale factor of 10,000.
 }
