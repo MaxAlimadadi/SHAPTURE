@@ -76,9 +76,9 @@ dataset_all$condition <- factor(dataset_all$condition, levels = condition_levels
 # shapture_config.
 #####
 
-# Result-folder prefix for this run; change it to keep analyses separate.
-# NULL uses automatic comparison names. Reusing a name in the same output
-# directory reuses the corresponding result folders.
+# Parent folder for this analysis, created inside the base output directory.
+# Comparison folders keep their usual names inside it. NULL uses no parent
+# folder. Reusing a project name reuses its comparison folders and files.
 project_name <- "analysis_name"
 
 shapture_config_condition_vs_condition <- list(
@@ -168,7 +168,7 @@ shapture_config_condition_vs_condition <- list(
   # requested maximum for model and Cross-patient bootstrap workers;
   # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
-  # Use the run name defined above as the result-folder prefix.
+  # Save this run inside the project folder defined above.
   project_name = project_name
 )
 
@@ -256,7 +256,7 @@ shapture_config_one_vs_others <- list(
   # requested maximum for model and Cross-patient bootstrap workers;
   # bootstrap workers are automatically reduced when CPU or RAM is limited
   n_cores = 4,
-  # Use the run name defined above as the result-folder prefix.
+  # Save this run inside the project folder defined above.
   project_name = project_name
 )
 

@@ -13,9 +13,10 @@ options(ggrepel.max.overlaps = Inf)
 
 #####
 # Select one completed result folder or the parent containing several.
+# For a named analysis, use main_dir/project_name, not the directory above it.
 # Each result folder needs docs/combined_results.csv and docs/visualization_inputs.rds.
 #####
-analysis_root <- "path/to/result_folder_or_parent"
+analysis_root <- "path/to/output_directory/analysis_name"
 
 # First color = condition_0/left/others; second color = condition_1/right/target.
 group_colors <- c("darkblue", "darkred")

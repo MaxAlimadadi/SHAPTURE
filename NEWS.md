@@ -1,5 +1,12 @@
 # SHAPTURE (development version)
 
+- `project_name` now creates a parent folder under `main_dir`, rather than
+  becoming a comparison-folder prefix. Standard comparison folders and
+  run-level tables are saved inside it. `NULL` saves directly under `main_dir`.
+  Returned and saved output paths, templates and visualization instructions
+  follow this structure. Existing result folders are not moved. Modeling,
+  seeds, scoring and plotting methods are unchanged by this organization change.
+
 - `memory_mode` now defaults to `"safe"` in the package, script configuration,
   and full configuration reference, matching the existing Seurat and SCE
   templates. `"full"` remains available as an explicit setting. Only the
@@ -10,8 +17,7 @@
   and dilution of condition-level SHAP averages. Safe-mode behavior and final
   score/rank calculations are unchanged.
 - Seurat and SCE templates expose `project_name` before the two config presets.
-  Each preset uses that value as its result-folder prefix; `NULL` retains
-  automatic comparison-based naming.
+  Each preset uses that value as its parent folder; `NULL` uses no extra parent.
 
 - Seurat input preparation now automatically joins split layers only when the
   selected assay has a supported method, including inherited methods.

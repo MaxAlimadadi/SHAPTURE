@@ -87,11 +87,14 @@ The main script defines a set of user-controlled parameters.
 - `comparison_mode`: `condition_vs_condition` or `one_vs_others`
 - `what_0`, `what_1`: the two condition labels to compare in `condition_vs_condition`
 - `what_genes`: feature set used by the model
-- `project_name`: result-folder prefix, exposed above the config presets in
+- `project_name`: parent folder for this analysis, exposed above the config presets in
   both getter templates. Change `project_name <- "analysis_name"` for each
-  analysis; each config uses `project_name = project_name`. `NULL` keeps
-  automatic comparison-based naming. Reusing the same name, subset and output
-  directory reuses its result folders, even if the comparison mode changes.
+  analysis; each config uses `project_name = project_name`. Results and run-level
+  tables go under `main_dir/project_name/`, with standard comparison folders
+  such as `control_case_subset_A` or `one_vs_others_subset_A` inside. `NULL`
+  saves directly under `main_dir`. Use a folder name, not a path. Reusing a
+  project/comparison folder reuses its files. The returned `project_dir` and
+  `output_dirs` are absolute, and saved config tables record the resolved paths.
 - `feature_min_pct`: task-specific detection filter from original single-cell task data; default is `0.25`, and `0` disables it
 - `feature_min_log2FC`: task-specific expression log2FC filter from original single-cell task data; default is `0.25`, and `0` disables it
 - `shap_expr_cor_cutoff`: minimum absolute value-to-SHAP correlation required for `Model_expression_pattern`; default is `0.25`
@@ -169,7 +172,7 @@ input data and row order, package versions, and analysis parameters.
 ### Post-analysis plotting
 - Analysis always saves result tables and `docs/visualization_inputs.rds`; figures are made afterward with `pipeline/run_shapture_visualization.R`.
 - `pipeline/run_shapture_visualization.R` is one editable, loop-based recipe for one or several completed result folders, not a black-box rendering function. `top_feature_show`, `top_feature_label`, `top_feature_show_extended`, `width_per_feature`, and `height_per_feature` are defined once before the loop.
-- Set `analysis_root` to a completed result folder or its parent. If that directory contains `docs/combined_results.csv` and `docs/visualization_inputs.rds`, only it is plotted. Otherwise, the script applies the same settings to every immediate child containing both files. Discovery is independent of comparison mode and folder name and does not search deeper levels.
+- Set `analysis_root` to a completed result folder or the containing project directory (`main_dir/project_name` for a named run). If that directory contains `docs/combined_results.csv` and `docs/visualization_inputs.rds`, only it is plotted. Otherwise, the script applies the same settings to every immediate child containing both files. Discovery is independent of comparison mode and folder name and does not search deeper levels.
 - Condition-level waterfall plots use `top_feature_show` for their displayed row count and label every row with its average feature value where available. Any collapsed "other features" row retains its summary label. `top_feature_label` applies to selective labels in force and scatter plots only; it never hides or merges waterfall rows. The waterfall helper still accepts the older `top_feature_label` argument for compatibility but ignores it.
 - Feature-dependent dimensions are calculated from the actual number displayed. Plot-specific base sizes and bounds remain in `calculate_shapture_figure_size()`, while every visible `pdf()` or `png()` call can still be changed to a fixed width or height directly. Density plots use the actual saved density-feature count to form a near-square grid with consistent panel space and additional horizontal room for the legend.
 - The original beeswarm remains unchanged. The visualization recipe also creates an equal-count binned beeswarm and one dependency PDF per feature actually displayed in the beeswarm. Both new plots reuse the same feature-specific groups.

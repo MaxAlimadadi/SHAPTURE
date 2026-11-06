@@ -9,7 +9,7 @@
 
 library(SHAPTURE)
 
-# Choose where result folders should be written.
+# Base output directory. A non-NULL project_name creates a parent folder here.
 analysis_dir <- getwd()
 dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -32,4 +32,5 @@ pipeline_config <- resolve_shapture_script_config(
   main_dir = analysis_dir
 )
 
-do.call(run_shapture_pipeline, pipeline_config)
+analysis_result <- do.call(run_shapture_pipeline, pipeline_config)
+message("Results saved in ", analysis_result$project_dir)

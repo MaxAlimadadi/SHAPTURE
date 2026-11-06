@@ -62,7 +62,7 @@ split or one-vs-others columns, and numeric features.}
 
 \item{what_genes}{Feature list to analyze.}
 
-\item{main_dir}{Output directory.}
+\item{main_dir}{Base output directory. A named project is created inside it.}
 
 \item{split_level_column}{Optional column used for subset-specific condition
 comparison. Use \code{NULL} for no split in \code{condition_vs_condition} mode. In
@@ -87,9 +87,10 @@ one-vs-others mode.}
 
 \item{what_1}{Positive class label for condition-vs-condition mode.}
 
-\item{project_name}{Optional result-folder prefix. \code{NULL} builds one from
-the comparison. Reusing a prefix and subset in the same output directory
-reuses the corresponding result folder.}
+\item{project_name}{Optional single folder name. Results are saved under
+\verb{main_dir/project_name/} with standard comparison folders inside it.
+\code{NULL} saves directly under \code{main_dir}. Reusing a project and comparison
+folder reuses its files. This is a folder name, not a path.}
 
 \item{train_ratio}{Training fraction.}
 
@@ -185,7 +186,8 @@ worker count or select serial bootstrapping.}
 \item{...}{Reserved for compatibility with older scripts.}
 }
 \value{
-Invisibly returns a list with task summaries and output folders.
+Invisibly returns a list with task summaries, absolute task output
+folders in \code{output_dirs}, and the containing directory in \code{project_dir}.
 }
 \description{
 Run the SHAPTURE pipeline

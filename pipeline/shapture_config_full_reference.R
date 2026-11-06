@@ -42,7 +42,8 @@ shapture_config_full <- list(
   what_0 = "low",
   what_1 = "high",
   
-  # result-folder prefix; NULL builds one from the comparison automatically
+  # optional parent folder created inside main_dir; NULL uses main_dir directly
+  # standard comparison folders and run-level tables are saved inside it
   # the getter templates expose project_name above their config presets
   project_name = NULL,
   

@@ -270,7 +270,7 @@ write_shapture_config_csv <- function(config_list, output_path) {
 #' @param envir Environment to read user-specified objects from.
 #' @param dataset_all Input data frame.
 #' @param what_genes Feature vector.
-#' @param main_dir Project directory.
+#' @param main_dir Base output directory containing the optional project folder.
 #'
 #' @return Named list of resolved pipeline arguments.
 #' @export
@@ -464,17 +464,15 @@ resolve_shapture_script_config <- function(
     dataset_all$condition <- factor(dataset_all$condition, levels = condition_levels)
   }
   
-  if (is.null(config$project_name)) {
-    config$project_name <- if (identical(config$comparison_mode, "condition_vs_condition")) {
+  if (nzchar(temp_run_tag)) {
+    tag_base <- config$project_name %||% if (identical(config$comparison_mode, "condition_vs_condition")) {
       paste0(config$what_0, "_", config$what_1)
     } else {
       "one_vs_others"
     }
+    config$project_name <- paste0(tag_base, "_", temp_run_tag)
   }
-  
-  if (nzchar(temp_run_tag)) {
-    config$project_name <- paste0(config$project_name, "_", temp_run_tag)
-  }
+  config["project_name"] <- list(validate_shapture_project_name(config$project_name))
   
   config$dataset_all <- dataset_all
   config$what_genes <- what_genes
@@ -1164,8 +1162,8 @@ filter_features_by_min_pct <- function(
 #' @param temp_split Current split or one-vs-others target level.
 #' @param task_what_0 Negative class label for this task.
 #' @param task_what_1 Positive class label for this task.
-#' @param main_dir Output root directory.
-#' @param project_name Project prefix.
+#' @param main_dir Project output directory containing the comparison folders.
+#' @param comparison_prefix Standard comparison-folder prefix.
 #' @param comparison_mode Comparison mode.
 #' @param effective_split_level_column Effective split column for condition-vs-condition mode.
 #' @param metacell_split_col Column used during metacell construction.
@@ -1232,7 +1230,7 @@ run_shapture_task <- function(
     task_what_0,
     task_what_1,
     main_dir,
-    project_name,
+    comparison_prefix,
     comparison_mode,
     effective_split_level_column,
     metacell_split_col,
@@ -1310,7 +1308,7 @@ run_shapture_task <- function(
   dataset_task$.shapture_unit_id <- make.unique(as.character(row.names(dataset_task)))
   dataset_task_singlecell$.shapture_unit_id <- make.unique(as.character(row.names(dataset_task_singlecell)))
   
-  sub_folder <- paste0(project_name, "_", temp_split)
+  sub_folder <- paste0(comparison_prefix, "_", temp_split)
   dir.create(sub_folder, showWarnings = FALSE)
   setwd(sub_folder)
   dir.create("docs", showWarnings = FALSE)
@@ -2759,7 +2757,7 @@ run_shapture_task <- function(
 #' @param dataset_all Input data frame containing `condition`, `sample_id`, any
 #'   split or one-vs-others columns, and numeric features.
 #' @param what_genes Feature list to analyze.
-#' @param main_dir Output directory.
+#' @param main_dir Base output directory. A named project is created inside it.
 #' @param split_level_column Optional column used for subset-specific condition
 #'   comparison. Use `NULL` for no split in `condition_vs_condition` mode. In
 #'   `one_vs_others` mode, this should be the column whose levels are compared
@@ -2775,9 +2773,10 @@ run_shapture_task <- function(
 #'   one-vs-others mode.
 #' @param what_0 Negative class label for condition-vs-condition mode.
 #' @param what_1 Positive class label for condition-vs-condition mode.
-#' @param project_name Optional result-folder prefix. `NULL` builds one from
-#'   the comparison. Reusing a prefix and subset in the same output directory
-#'   reuses the corresponding result folder.
+#' @param project_name Optional single folder name. Results are saved under
+#'   `main_dir/project_name/` with standard comparison folders inside it.
+#'   `NULL` saves directly under `main_dir`. Reusing a project and comparison
+#'   folder reuses its files. This is a folder name, not a path.
 #' @param train_ratio Training fraction.
 #' @param test_ratio Test fraction.
 #' @param iteration_no Number of repeated iterations.
@@ -2837,7 +2836,8 @@ run_shapture_task <- function(
 #' @param metacell_parallel_backend Metacell parallel backend.
 #' @param ... Reserved for compatibility with older scripts.
 #'
-#' @return Invisibly returns a list with task summaries and output folders.
+#' @return Invisibly returns a list with task summaries, absolute task output
+#'   folders in `output_dirs`, and the containing directory in `project_dir`.
 #' @export
 run_shapture_pipeline <- function(
     dataset_all,
@@ -2928,6 +2928,7 @@ run_shapture_pipeline <- function(
   
   comparison_mode <- normalize_comparison_mode(comparison_mode)
   comparison_mode <- match.arg(comparison_mode, c("condition_vs_condition", "one_vs_others"))
+  project_name <- validate_shapture_project_name(project_name)
   memory_mode <- match.arg(memory_mode, c("full", "safe"))
   patient_split_strategy <- match.arg(
     patient_split_strategy,
@@ -2994,14 +2995,6 @@ run_shapture_pipeline <- function(
     stop("dataset_all must contain at least 'condition' and 'sample_id'.")
   }
   
-  if (is.null(project_name)) {
-    project_name <- if (comparison_mode == "condition_vs_condition") {
-      paste0(what_0, "_", what_1)
-    } else {
-      "one_vs_others"
-    }
-  }
-
   resolved_config_for_docs <- list(
     split_level_column = split_level_column,
     split_levels_to_analyze = split_levels_to_analyze,
@@ -3070,6 +3063,15 @@ run_shapture_pipeline <- function(
   dataset_all_work <- task_context$dataset
   metacell_split_col <- task_context$task_metacell_split_col
   task_table <- task_context$task_table
+
+  output_layout <- prepare_shapture_output_layout(
+    main_dir, project_name, comparison_mode, what_0, what_1
+  )
+  project_dir <- output_layout$project_dir
+  comparison_prefix <- output_layout$comparison_prefix
+  resolved_config_for_docs$main_dir <- output_layout$main_dir
+  resolved_config_for_docs$project_dir <- project_dir
+  resolved_config_for_docs$comparison_prefix <- comparison_prefix
   
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
@@ -3118,7 +3120,7 @@ run_shapture_pipeline <- function(
     metacell_summary <- NULL
   }
   
-  setwd(main_dir)
+  setwd(project_dir)
   if (comparison_mode == "condition_vs_condition" && !is.null(split_level_column)) {
     write.csv(
       t(table(dataset_all_analysis$condition, dataset_all_analysis[[split_level_column]])),
@@ -3149,8 +3151,8 @@ run_shapture_pipeline <- function(
       temp_split = task_table$temp_split[i],
       task_what_0 = task_table$task_what_0[i],
       task_what_1 = task_table$task_what_1[i],
-      main_dir = main_dir,
-      project_name = project_name,
+      main_dir = project_dir,
+      comparison_prefix = comparison_prefix,
       comparison_mode = comparison_mode,
       effective_split_level_column = task_context$effective_split_level_column,
       metacell_split_col = metacell_split_col,
@@ -3201,6 +3203,7 @@ run_shapture_pipeline <- function(
   
   invisible(list(
     task_results = task_results,
+    project_dir = project_dir,
     output_dirs = vapply(task_results, function(x) ifelse(isTRUE(x$analyzed), x$output_dir, NA_character_), character(1))
   ))
 }

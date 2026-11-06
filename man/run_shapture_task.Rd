@@ -12,7 +12,7 @@ run_shapture_task(
   task_what_0,
   task_what_1,
   main_dir,
-  project_name,
+  comparison_prefix,
   comparison_mode,
   effective_split_level_column,
   metacell_split_col,
@@ -60,9 +60,9 @@ run_shapture_task(
 
 \item{task_what_1}{Positive class label for this task.}
 
-\item{main_dir}{Output root directory.}
+\item{main_dir}{Project output directory containing the comparison folders.}
 
-\item{project_name}{Project prefix.}
+\item{comparison_prefix}{Standard comparison-folder prefix.}
 
 \item{comparison_mode}{Comparison mode.}
 

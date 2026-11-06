@@ -13,7 +13,7 @@ resolve_shapture_script_config(envir, dataset_all, what_genes, main_dir)
 
 \item{what_genes}{Feature vector.}
 
-\item{main_dir}{Project directory.}
+\item{main_dir}{Base output directory containing the optional project folder.}
 }
 \value{
 Named list of resolved pipeline arguments.

@@ -241,7 +241,7 @@ run the pipeline.
 ```r
 library(SHAPTURE)
 
-project_name <- "analysis_name"  # Result-folder prefix for this run.
+project_name <- "analysis_name"  # Parent folder for this analysis.
 
 shapture_config <- list(
   # For an object adapter, use dataset_res$split_level_column here.
@@ -282,7 +282,7 @@ pipeline_config <- resolve_shapture_script_config(
   main_dir = getwd()
 )
 
-do.call(run_shapture_pipeline, pipeline_config)
+analysis_result <- do.call(run_shapture_pipeline, pipeline_config)
 ```
 
 This example uses single cells, XGBoost, and safe memory mode. Replace the
@@ -299,11 +299,29 @@ pipeline/shapture_config_full_reference.R
 ```
 
 The Seurat and SCE templates also expose `project_name` just before their config
-presets. Change it for each analysis to keep result folders separate. For
-example, `project_name <- "run_A"` and subset `B` produce `run_A_B` under the
-chosen output directory. Set it to `NULL` for automatic comparison-based
-naming. Reusing a name with the same subset and output directory reuses its
-folders, including across comparison modes.
+presets. It creates a parent folder inside `main_dir`, with the usual comparison
+folders and run-level tables inside. For example, `project_name <- "analysis_01"`
+produces:
+
+```text
+output_directory/
+  analysis_01/
+    control_disease_subset_A/
+      docs/
+      Integrated_adaptive_scoring_results/
+      SHAP_only/
+    control_disease_subset_B/
+    cell.used.per.condition.csv
+```
+
+One-vs-others folders keep names such as `one_vs_others_subset_A` inside the
+project. Set `project_name = NULL` to save comparisons directly under `main_dir`
+without an extra parent folder. Use a single folder name, not a path. Reusing a
+project and comparison folder reuses its files; existing results are not moved
+or renamed. The runner reports the parent path, also returned as
+`analysis_result$project_dir`. Task paths are returned in `output_dirs`, and each
+saved configuration records the base directory, project directory and standard
+comparison prefix. Naming does not change sampling, modeling or scoring.
 
 ### Reproducibility
 
@@ -491,7 +509,7 @@ After a run finishes, edit:
 pipeline/run_shapture_visualization.R
 ```
 
-Set `analysis_root` to either one completed result folder or a parent directory
+Set `analysis_root` to either one completed result folder or a project directory
 containing several completed result folders, then run the script. If the
 supplied folder contains both `docs/combined_results.csv` and
 `docs/visualization_inputs.rds`, the script plots only that folder. Otherwise,
@@ -500,6 +518,9 @@ with the same settings. Discovery works for condition-vs-condition and
 one-vs-others results without depending on folder names; it is not recursive.
 This lets you change top-feature counts, figure sizes, colors, and label sizes
 without retraining models.
+
+For a named run, use `main_dir/project_name` (or `analysis_result$project_dir`),
+not the directory above several projects.
 
 The full retained ranking remains in `combined_results.csv`. In safe memory
 mode, saved beeswarm and dependency inputs are limited to the analysis-time
@@ -569,7 +590,8 @@ When an analysis produces several split-level result folders, edit:
 pipeline/run_shapture_global_visualization.R
 ```
 
-Set `results_root` to the folder containing the completed result folders. The
+Set `results_root` to the project folder containing the completed comparisons
+(for example, `main_dir/project_name`). The
 script reads each `docs/combined_results.csv` and does not rerun any models.
 `top_feature_show` selects the top-ranked features independently from every
 folder; their union is used in two global figures:

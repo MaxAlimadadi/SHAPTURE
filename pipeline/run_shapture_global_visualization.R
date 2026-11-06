@@ -10,10 +10,11 @@ library(RColorBrewer)
 
 #####
 # Select the folder containing multiple completed SHAPTURE result folders.
+# For a named analysis, this is main_dir/project_name.
 # Each completed folder must contain docs/combined_results.csv and either
 # docs/visualization_inputs.rds or Integrated_adaptive_scoring_results/run_summary.csv.
 #####
-results_root <- "path/to/folder_containing_multiple_shapture_result_folders"
+results_root <- "path/to/output_directory/analysis_name"
 
 # Optional explicit completed-result folders. NULL discovers them recursively
 # under results_root.
