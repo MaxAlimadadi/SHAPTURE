@@ -1,5 +1,9 @@
 # SHAPTURE
 
+<p align="center">
+  <img src="assets/SHAPTURE.png" alt="SHAPTURE logo" width="360">
+</p>
+
 Current release: [v0.1.0](https://github.com/MaxAlimadadi/SHAPTURE/releases/tag/v0.1.0).
 
 SHAPTURE is an R package for sample-aware, SHAP-based feature discovery in

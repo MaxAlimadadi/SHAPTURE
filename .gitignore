@@ -36,6 +36,9 @@ cell.used.per.condition.csv
 *.pptx
 *.xlsx
 
+# Repository branding
+!/assets/SHAPTURE.png
+
 # Temporary files
 *.tmp
 *.log
